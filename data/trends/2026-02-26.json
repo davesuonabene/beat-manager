@@ -1,0 +1,28 @@
+[
+    {
+        "timestamp": "2026-02-26T02:57:47.678864",
+        "keywords": [
+            "lofi",
+            "chillhop"
+        ],
+        "external_data": {
+            "lofi": {
+                "search_volume": "high (simulated)",
+                "trend": "upward (simulated)",
+                "related_artists": [
+                    "Artist A",
+                    "Artist B"
+                ]
+            },
+            "chillhop": {
+                "search_volume": "high (simulated)",
+                "trend": "upward (simulated)",
+                "related_artists": [
+                    "Artist A",
+                    "Artist B"
+                ]
+            }
+        },
+        "youtube_data": {}
+    }
+]
