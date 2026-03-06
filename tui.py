@@ -17,7 +17,7 @@ from textual.message import Message
 from textual.reactive import reactive
 
 # Project paths
-BASE_DIR = "/home/davesuonabene/.openclaw/workspace/projects/beat-manager"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 STATE_JSON = os.path.join(BASE_DIR, "state.json")
 
@@ -132,8 +132,8 @@ class LibraryTab(Static):
         atable = self.query_one("#audio-table", DataTable)
         atable.add_columns("FILENAME", "TYPE", "DURATION", "SR", "BD", "PATH") # Updated columns
         
+        self.audio_engine = AudioEngine() # Initialize AudioEngine FIRST
         self.refresh_folders()
-        self.audio_engine = AudioEngine() # Initialize AudioEngine
 
     def refresh_folders(self) -> None:
         ftable = self.query_one("#folder-table", DataTable)
@@ -400,7 +400,6 @@ class BeatManagerApp(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
-        Binding("k", "harvest", "Harvest Selection", show=True),
         Binding("r", "refresh_all", "Refresh UI", show=True),
     ]
 
@@ -417,16 +416,10 @@ class BeatManagerApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Initialize default folders
+        # Initialize state
         state = StateManager(STATE_JSON)
-        samples_path = "/home/davesuonabene/.openclaw/workspace/workspace/samples_2026-02-27/"
-        if os.path.exists(samples_path):
-            state.add_folder(samples_path)
-        
-        self.refresh_reports()
 
     def action_refresh_all(self) -> None:
-        self.refresh_reports()
         self.query_one(LibraryTab).refresh_folders()
         self.notify("UI Refreshed", title="System")
 
@@ -441,71 +434,6 @@ class BeatManagerApp(App):
         else:
             self.notify("Invalid folder path", severity="error")
 
-    def refresh_reports(self) -> None:
-        """Robustly load reports into all viewers."""
-        if not os.path.exists(REPORTS_DIR):
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            return
-
-        reports = sorted(glob.glob(os.path.join(REPORTS_DIR, "*.md")), reverse=True)
-        
-        # Update Research List
-        try:
-            report_list = self.query_one("#res-report-list", ListView)
-            report_list.clear()
-            for r in reports:
-                name = os.path.basename(r)
-                item = ListItem(Label(name))
-                item.report_full_path = r # Attribute based storage
-                report_list.append(item)
-        except: pass
-
-        # Load latest into Branding Viewer by default
-        if reports:
-            self.load_report_into_viewer(reports[0], "#branding-report-viewer")
-
-    def load_report_into_viewer(self, path: str, viewer_id: str) -> None:
-        try:
-            with open(path, "r") as f:
-                content = f.read()
-            self.query_one(viewer_id, TextArea).load_text(content)
-        except Exception as e:
-            self.notify(f"Failed to load report: {str(e)}", severity="error")
-
-    @on(ListView.Selected, "#res-report-list")
-    def handle_report_selection(self, event: ListView.Selected) -> None:
-        path = getattr(event.item, "report_full_path", None)
-        if path:
-            self.load_report_into_viewer(path, "#research-report-viewer")
-
-    @on(Button.Pressed, "#btn-refresh-reports")
-    def handle_refresh_btn(self) -> None:
-        self.refresh_reports()
-
-    def action_harvest(self) -> None:
-        """Keyboard shortcut 'k': Grab highlighted text from ANY TextArea."""
-        focused = self.focused
-        if isinstance(focused, TextArea):
-            txt = focused.selected_text
-            if txt:
-                # Find the active keyword group from either Branding or Research tab
-                # We'll use the one in Branding KeywordManager as the main vault
-                try:
-                    target_group = self.query_one("#kw-add-group", Select).value
-                    self.query_one(KeywordManager).add_keyword(txt, target_group)
-                except:
-                    self.notify("Could not find Keyword Vault", severity="error")
-            else:
-                self.notify("No text selected to harvest", severity="warning")
-
-    @on(Button.Pressed, "#kw-add-btn")
-    def handle_kw_add(self) -> None:
-        kw = self.query_one("#kw-add-input", Input).value
-        group = self.query_one("#kw-add-group", Select).value
-        if kw:
-            self.query_one(KeywordManager).add_keyword(kw, group)
-            self.query_one("#kw-add-input", Input).value = ""
-
     # --- Engine Actions ---
 
     @on(Button.Pressed, "#btn-render-start")
@@ -514,39 +442,29 @@ class BeatManagerApp(App):
         image = self.query_one("#prod-image", Input).value
         output = self.query_one("#prod-video", Input).value
         
-        StateManager(STATE_JSON).add_task("RENDER", output, "Pending")
+        StateManager(STATE_JSON).add_task("RENDER", output, "Pending", audio=audio, image=image)
         self.notify(f"Rendering Task Queued: {os.path.basename(output)}")
-        self.run_render(audio, image, output)
 
-    @work(exclusive=False, thread=True)
-    def run_render(self, audio: str, image: str, output: str):
-        try:
-            VideoEngine().create_video(audio, image, output)
-            self.app.notify(f"Render Success: {os.path.basename(output)}")
-        except Exception as e:
-            self.app.notify(f"Render Fail: {str(e)}", severity="error")
-
-    @on(Button.Pressed, "#btn-niche-scan")
-    def handle_scan(self) -> None:
-        group = self.query_one("#res-scan-group", Select).value
-        query = self.query_one("#res-scan-query", Input).value
-        if not query:
-            self.notify("Seed keyword required for scan", severity="error")
-            return
+    @on(Button.Pressed, "#btn-yt-upload")
+    def handle_yt_upload(self) -> None:
+        video = self.query_one("#yt-video", Input).value
+        title = self.query_one("#yt-title", Input).value
+        description = self.query_one("#yt-desc", TextArea).text
+        category = self.query_one("#yt-cat", Select).value
+        privacy = self.query_one("#yt-privacy", Select).value
         
-        self.notify(f"Launching discovery for [{group}] {query}...")
-        self.run_niche_scan(query, group)
+        StateManager(STATE_JSON).add_task(
+            "UPLOAD", 
+            title, 
+            "Pending", 
+            video=video, 
+            description=description, 
+            category=category, 
+            privacy=privacy,
+            channel="default_channel"
+        )
+        self.notify(f"Upload Task Queued: {title}")
 
-    @work(exclusive=True, thread=True)
-    def run_niche_scan(self, query: str, group: str):
-        try:
-            from strategy_engine import StrategyEngine
-            report_path = StrategyEngine().discover_niche(query, group)
-            self.app.notify(f"Discovery Complete: {os.path.basename(report_path)}")
-            # The refresh is handled by the main thread, but we can call it if we have access
-            self.app.call_from_thread(self.refresh_reports)
-        except Exception as e:
-            self.app.notify(f"Discovery Failed: {str(e)}", severity="error")
 
 if __name__ == "__main__":
     app = BeatManagerApp()

@@ -5,7 +5,7 @@ from state_manager import StateManager
 import mutagen
 
 # Project paths
-BASE_DIR = "/home/davesuonabene/.openclaw/workspace/projects/beat-manager"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_JSON = os.path.join(BASE_DIR, "state.json")
 
 class AudioEngine:
