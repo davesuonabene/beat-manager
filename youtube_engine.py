@@ -72,7 +72,11 @@ class YouTubeEngine:
             raise FileNotFoundError(f"Video file not found: {file_path}")
 
         creds = self._get_credentials(channel_id)
-        youtube = build("youtube", "v3", credentials=creds)
+        import httplib2
+        import google_auth_httplib2
+        http_client = httplib2.Http(timeout=120)
+        authorized_http = google_auth_httplib2.AuthorizedHttp(creds, http=http_client)
+        youtube = build("youtube", "v3", http=authorized_http)
 
         body = {
             'snippet': {
@@ -123,7 +127,11 @@ class YouTubeEngine:
         Updates metadata for an existing YouTube video.
         """
         creds = self._get_credentials(channel_id)
-        youtube = build("youtube", "v3", credentials=creds)
+        import httplib2
+        import google_auth_httplib2
+        http_client = httplib2.Http(timeout=120)
+        authorized_http = google_auth_httplib2.AuthorizedHttp(creds, http=http_client)
+        youtube = build("youtube", "v3", http=authorized_http)
 
         # 1. Retrieve existing snippet
         list_request = youtube.videos().list(part="snippet", id=video_id)

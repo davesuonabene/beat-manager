@@ -1,11 +1,13 @@
 import argparse
 import os
 import sys
+import json
+import traceback
 from state_manager import StateManager
 from video_engine import VideoEngine
 from youtube_engine import YouTubeEngine
-from analytics_engine import AnalyticsEngine
-from strategy_engine import StrategyEngine
+from strategy_manager import StrategyManager
+from backend import Backend
 
 def main():
     parser = argparse.ArgumentParser(description="Beat Manager CLI")
@@ -13,138 +15,98 @@ def main():
 
     # Render Command
     render_parser = subparsers.add_parser("render", help="Render a video from audio and image")
-    render_parser.add_argument("--audio", required=True, help="Path to audio file (.mp3)")
-    render_parser.add_argument("--image", required=True, help="Path to image file (.png)")
-    render_parser.add_argument("--title", help="Title for the project (optional)")
-    render_parser.add_argument("--output", default="output.mp4", help="Output video path")
+    render_parser.add_argument("--audio", required=True)
+    render_parser.add_argument("--image", required=True)
+    render_parser.add_argument("--output", default="output.mp4")
 
     # Upload Command
     upload_parser = subparsers.add_parser("upload", help="Upload a video to YouTube")
-    upload_parser.add_argument("--video", required=True, help="Path to video file")
-    upload_parser.add_argument("--title", required=True, help="YouTube video title")
-    upload_parser.add_argument("--description", default="", help="YouTube video description")
-    upload_parser.add_argument("--tags", default="", help="Comma-separated tags")
-    upload_parser.add_argument("--channel", default="default_channel", help="Channel name to upload to")
-    upload_parser.add_argument("--category", default="10", help="Category ID (default 10: Music)")
-    upload_parser.add_argument("--privacy", default="private", choices=["public", "private", "unlisted"], help="Privacy status")
-    upload_parser.add_argument("--publish_at", help="Schedule time (ISO 8601 string)")
+    upload_parser.add_argument("--video", required=True)
+    upload_parser.add_argument("--title", required=True)
+    upload_parser.add_argument("--description", default="")
+    upload_parser.add_argument("--privacy", default="private")
+    upload_parser.add_argument("--publish_at", help="Schedule time (ISO 8601)")
 
-    # Analyze Command
-    analyze_parser = subparsers.add_parser("analyze", help="Perform keyword and trend analysis")
-    analyze_parser.add_argument("--keywords", required=True, help="Comma-separated keywords to analyze")
-    analyze_parser.add_argument("--deep", action="store_true", help="Perform targeted YouTube deep-dive")
+    # Queue Command
+    queue_parser = subparsers.add_parser("queue", help="Manage the weekly queue")
+    queue_parser.add_argument("--list", action="store_true", help="List all items in the weekly queue")
+    queue_parser.add_argument("--activate", type=int, help="Activate a queue item by index")
+    queue_parser.add_argument("--check", action="store_true", help="Perform machine-readable validation")
 
-    # Discover Command
-    discover_parser = subparsers.add_parser("discover", help="Perform niche discovery and strategy planning")
-    discover_parser.add_argument("--seed", required=True, help="Seed Niche or Intent (e.g., 'trip hop, clams casino')")
+    # Process Command
+    process_parser = subparsers.add_parser("process", help="Execute pending tasks in the state")
+    process_parser.add_argument("--id", type=int, help="Task ID to process. If omitted, processes all pending.")
 
-    # Update Metadata Command
-    update_parser = subparsers.add_parser("update", help="Update metadata of an existing YouTube video")
-    update_parser.add_argument("--video_id", required=True, help="The YouTube Video ID")
-    update_parser.add_argument("--title", help="New title")
-    update_parser.add_argument("--description", help="New description")
-    update_parser.add_argument("--tags", help="New comma-separated tags")
-    update_parser.add_argument("--channel", default="default_channel", help="Channel name")
+    # Strategy Command
+    strat_parser = subparsers.add_parser("strategy", help="Manage strategy and compile queue")
+    strat_parser.add_argument("--compile", action="store_true")
+    strat_parser.add_argument("--show", action="store_true")
 
     # Status Command
-    status_parser = subparsers.add_parser("status", help="Show current queue and state")
+    subparsers.add_parser("status", help="Show current state tasks")
 
     args = parser.parse_args()
     state = StateManager()
+    backend = Backend()
 
     if args.command == "render":
         task_id = state.add_task("RENDER", args.output, audio=args.audio, image=args.image)
-        print(f"Added RENDER task for {args.output} (ID: {task_id})")
-        
-        try:
-            state.update_task_status(task_id, "Rendering...")
-            engine = VideoEngine()
-            engine.create_video(args.audio, args.image, args.output)
-            state.update_task_status(task_id, "Finished")
-            print(f"Successfully rendered: {args.output}")
-        except Exception as e:
-            state.update_task_status(task_id, f"Error: {str(e)}")
-            print(f"Error rendering video: {e}", file=sys.stderr)
+        backend.process_task(task_id)
 
     elif args.command == "upload":
-        task_id = state.add_task("UPLOAD", args.title, video=args.video)
-        print(f"Added UPLOAD task for {args.title} (ID: {task_id})")
+        task_id = state.add_task("UPLOAD", args.title, video=args.video, publish_at=args.publish_at)
+        backend.process_task(task_id)
 
-        try:
-            state.update_task_status(task_id, "Uploading...")
-            if not os.path.exists("client_secrets.json"):
-                raise FileNotFoundError("client_secrets.json not found.")
-            
-            engine = YouTubeEngine("client_secrets.json")
-            tags = [t.strip() for t in args.tags.split(",")] if args.tags else []
-            engine.upload_video(args.channel, args.video, args.title, args.description, tags, args.category, args.privacy, publish_at=args.publish_at)
-            state.update_task_status(task_id, "Uploaded")
-            print(f"Successfully uploaded: {args.title}")
-        except Exception as e:
-            state.update_task_status(task_id, f"Error: {str(e)}")
-            print(f"Error uploading video: {e}", file=sys.stderr)
-
-    elif args.command == "analyze":
-        task_id = state.add_task("ANALYZE", args.keywords)
-        print(f"Added ANALYZE task for {args.keywords} (ID: {task_id})")
+    elif args.command == "queue":
+        if args.list:
+            queue = StrategyManager().get_queue()
+            print(f"{'IDX':<4} | {'TIME':<20} | {'ACTION':<15} | {'STATUS'}")
+            print("-" * 55)
+            for idx, item in enumerate(queue):
+                print(f"{idx:<4} | {item['timestamp']:<20} | {item['action']:<15} | {item['status']}")
         
-        try:
-            state.update_task_status(task_id, "Analyzing...")
-            engine = AnalyticsEngine()
-            keywords = [k.strip() for k in args.keywords.split(",")]
-            results = engine.analyze_keywords(keywords, use_youtube=args.deep)
-            state.update_task_status(task_id, "Completed")
-            print(f"Successfully completed analysis for: {args.keywords}")
-        except Exception as e:
-            state.update_task_status(task_id, f"Error: {str(e)}")
-            print(f"Error during analysis: {e}", file=sys.stderr)
+        elif args.check:
+            issues = StrategyManager().validate_queue()
+            print(json.dumps(issues, indent=2))
 
-    elif args.command == "discover":
-        task_id = state.add_task("DISCOVER", args.seed)
-        print(f"Added DISCOVER task for {args.seed} (ID: {task_id})")
+        elif args.activate is not None:
+            task_id = backend.activate_from_queue(args.activate)
+            if task_id:
+                # Pre-flight check immediately after activation
+                check = backend.pre_flight_check(task_id)
+                if not check["ready"]:
+                    print(f"Task #{task_id} activated but PRE-FLIGHT FAILED: {', '.join(check.get('errors', []))}")
+                else:
+                    print(f"Task #{task_id} activated and passed pre-flight. Run 'process --id {task_id}' to execute.")
+            else:
+                print("Failed to activate task. Check if index is valid and status is 'pending'.")
 
-        try:
-            state.update_task_status(task_id, "Discovering...")
-            engine = StrategyEngine()
-            niche_map = engine.generate_niche_map(args.seed)
-            template_path = os.path.join("branding", "strategy_template.md")
-            output_dir = os.path.join("branding", "reports")
-            report_path = engine.generate_report(niche_map, template_path, output_dir)
-            state.update_task_status(task_id, "Completed")
-            print(f"Successfully completed discovery for: {args.seed}")
-            print(f"Report generated at: {report_path}")
-        except Exception as e:
-            state.update_task_status(task_id, f"Error: {str(e)}")
-            print(f"Error during discovery: {e}", file=sys.stderr)
+    elif args.command == "process":
+        if args.id:
+            backend.process_task(args.id)
+        else:
+            pending = state.get_pending_tasks()
+            for t in pending:
+                backend.process_task(t.doc_id)
 
-    elif args.command == "update":
-        print(f"Updating metadata for video {args.video_id}...")
-        try:
-            if not os.path.exists("client_secrets.json"):
-                raise FileNotFoundError("client_secrets.json not found.")
-            
-            engine = YouTubeEngine("client_secrets.json")
-            tags = [t.strip() for t in args.tags.split(",")] if args.tags else None
-            engine.update_video_metadata(
-                args.channel, 
-                args.video_id, 
-                title=args.title, 
-                description=args.description, 
-                tags=tags
-            )
-            print(f"Successfully updated metadata for: {args.video_id}")
-        except Exception as e:
-            print(f"Error updating video metadata: {e}", file=sys.stderr)
+    elif args.command == "strategy":
+        sm = StrategyManager()
+        if args.compile:
+            sm.compile_queue_from_plan()
+            print("Queue compiled from plan.")
+        if args.show:
+            print("STRATEGY:", json.dumps(sm.get_strategy(), indent=2))
+            print("PLAN:", json.dumps(sm.get_plan(), indent=2))
 
     elif args.command == "status":
         tasks = state.get_tasks()
         if not tasks:
-            print("Queue is empty.")
+            print("No tasks in state.")
         else:
-            print(f"{'ID':<4} | {'Type':<8} | {'Target':<20} | {'Status':<15}")
-            print("-" * 55)
-            for task in tasks:
-                print(f"{task.doc_id:<4} | {task['type']:<8} | {task['target']:<20} | {task['status']:<15}")
+            print(f"{'ID':<4} | {'TYPE':<10} | {'STATUS':<15} | {'TARGET'}")
+            print("-" * 60)
+            for t in tasks:
+                print(f"{t.doc_id:<4} | {t['type']:<10} | {t['status']:<15} | {t['target']}")
 
     else:
         parser.print_help()

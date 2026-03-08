@@ -1,0 +1,271 @@
+/* Global Theme: Cyberpunk/Synthwave */
+Screen {
+    background: #0d0221;
+    color: #e0e0e0;
+}
+
+Header {
+    background: #190061;
+    color: #00f9ff;
+    text-style: bold;
+    border-bottom: tall #240090;
+    height: 3;
+}
+
+#footer-bar {
+    height: 3;
+    background: #190061;
+    border-top: tall #240090;
+    dock: bottom;
+}
+
+Footer {
+    background: transparent;
+    border: none;
+    color: #ff00ff;
+}
+
+TabbedContent {
+    height: 1fr;
+}
+
+TabPane {
+    padding: 1 2;
+    background: transparent;
+    height: 1fr;
+    overflow-y: auto;
+}
+
+/* Custom Containers */
+Island {
+    background: #0f0524;
+    border: solid #240090;
+    padding: 1 2;
+    margin: 1;
+    height: auto;
+    min-height: 10;
+}
+
+.section-label {
+    color: #00f9ff;
+    text-style: bold;
+    margin: 1 0;
+    text-align: center;
+}
+
+/* Stats Cards */
+#stats-row {
+    height: auto;
+    align: center middle;
+}
+
+.stats-card {
+    width: 30;
+    height: 7;
+    background: #190061;
+    border: double #ff00ff;
+    margin: 1;
+    align: center middle;
+}
+
+#stat-total { color: #00f9ff; }
+#stat-finished { color: #00ff00; }
+#stat-errors { color: #ff0000; }
+
+.stats-label {
+    color: #ff00ff;
+    text-style: italic;
+}
+
+/* Active Task Card */
+#active-task-container {
+    height: auto;
+    min-height: 10;
+    border: tall #00f9ff;
+    background: #0d0221;
+    margin: 2 4;
+    padding: 1 2;
+    align: center middle;
+}
+
+#active-task-title {
+    color: #00f9ff;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+/* Form Styling */
+.tab-container {
+    height: 1fr;
+    width: 1fr;
+    align: center middle;
+}
+
+.form-island {
+    width: 80;
+    height: auto;
+}
+
+Input {
+    background: #1a1a1a;
+    border: solid #240090;
+    color: #fff;
+    margin-bottom: 1;
+}
+
+Input:focus {
+    border: solid #00f9ff;
+    background: #240090;
+}
+
+Select {
+    background: #1a1a1a;
+    border: solid #240090;
+    margin-bottom: 1;
+}
+
+Button {
+    margin: 1 0;
+    border: none;
+    background: #240090;
+    color: #e0e0e0;
+    width: 100%;
+}
+
+Button:hover {
+    background: #3500d3;
+    color: #fff;
+}
+
+Button.-variant-primary {
+    background: #004488;
+}
+
+Button.-variant-success {
+    background: #006622;
+}
+
+Button.-variant-warning {
+    background: #886600;
+}
+
+/* Queue Panel Toggle */
+#queue-panel {
+    height: 15;
+    background: #080212;
+    border-top: tall #240090;
+}
+
+#queue-panel.hidden {
+    display: none;
+}
+
+#btn-toggle-queue {
+    width: 15;
+    background: #240090;
+    color: #00f9ff;
+    border: none;
+    margin: 0;
+    height: 100%;
+}
+
+#btn-toggle-queue:hover {
+    background: #3500d3;
+}
+
+/* Library Layout */
+#library-row {
+    height: 1fr;
+}
+
+#library-left {
+    width: 30%;
+}
+
+#library-right {
+    width: 70%;
+}
+
+/* Strategy Layout */
+#strat-row {
+    height: 1fr;
+}
+
+#strat-left {
+    width: 45%;
+}
+
+#strat-right {
+    width: 55%;
+}
+
+.json-editor {
+    height: 1fr;
+    background: #000;
+    border: solid #240090;
+    margin-bottom: 1;
+}
+
+.json-editor-small {
+    height: 15;
+    background: #000;
+    border: solid #240090;
+    margin-bottom: 1;
+}
+
+.status-bar-simple {
+    height: 3;
+    background: #190061;
+    padding: 0 2;
+    align: center middle;
+    margin-top: 1;
+}
+
+.issues-list {
+    height: 10;
+    background: #000;
+    border: solid #240090;
+    margin-bottom: 1;
+}
+
+.issue-ok { color: #00ff00; }
+.issue-warn { color: #ffff00; }
+
+#asset-label { color: #ff00ff; margin-right: 1; }
+#asset-status { color: #00f9ff; text-style: bold; }
+
+DataTable {
+    background: transparent;
+    border: none;
+    height: 20;
+}
+
+DataTable > .datatable--header {
+    background: #190061;
+    color: #00f9ff;
+}
+
+/* Status Colors */
+.status-pending { color: #888; }
+.status-processing { color: #ffff00; text-style: italic; }
+.status-finished { color: #00ff00; text-style: bold; }
+.status-error { color: #ff0000; text-style: bold; }
+.status-uploaded { color: #00f9ff; text-style: bold; }
+
+/* Log Modal */
+#log-container {
+    width: 80%;
+    height: 80%;
+    background: #0d0221;
+    border: tall #ff00ff;
+    padding: 1 2;
+    align: center middle;
+}
+
+#log-text {
+    height: 1fr;
+    width: 1fr;
+    border: solid #240090;
+    background: #000;
+}

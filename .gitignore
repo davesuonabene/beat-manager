@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Secrets
+client_secrets.json
+tokens/
+*.key
+*.pem
+
+# Project-specific data and temporary files
+data/
+temp_videos/
+*.log
+*.bak
+upload_metadata.json
+state.json
+state.json.bak
+
+# OS specific
+.DS_Store
+Thumbs.db
