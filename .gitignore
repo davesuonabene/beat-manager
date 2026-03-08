@@ -14,11 +14,23 @@ tokens/
 # Project-specific data and temporary files
 data/
 temp_videos/
+assets/
 *.log
 *.bak
 upload_metadata.json
 state.json
 state.json.bak
+
+# Media files
+*.mp3
+*.wav
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.flac
+*.ogg
+*.aac
 
 # OS specific
 .DS_Store
