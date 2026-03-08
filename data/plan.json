@@ -1,0 +1,11 @@
+{
+    "checkpoints": [
+        {"day": "Monday", "action": "UPLOAD"},
+        {"day": "Tuesday", "action": "UPLOAD"},
+        {"day": "Wednesday", "action": "UPLOAD"},
+        {"day": "Thursday", "action": "UPLOAD"},
+        {"day": "Friday", "action": "UPLOAD"},
+        {"day": "Saturday", "action": "UPLOAD"},
+        {"day": "Sunday", "action": "UPLOAD"}
+    ]
+}

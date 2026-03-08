@@ -12,7 +12,6 @@ tokens/
 *.pem
 
 # Project-specific data and temporary files
-data/
 temp_videos/
 assets/
 *.log
