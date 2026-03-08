@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from enum import Enum
 from datetime import datetime
 
@@ -7,6 +7,27 @@ class PrivacyEnum(str, Enum):
     PRIVATE = "private"
     UNLISTED = "unlisted"
     PUBLIC = "public"
+
+class AssetType(str, Enum):
+    BEAT = "beat"
+    SAMPLE = "sample"
+    IMAGE = "image"
+    VIDEO = "video"
+
+class LibraryAsset(BaseModel):
+    id: str = Field(..., description="Unique identifier for the asset (slug or UUID)")
+    type: AssetType = Field(..., description="The type of asset")
+    name: str = Field(..., description="Display name for the asset")
+    path: str = Field(..., description="The directory containing the asset files")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the asset")
+
+class BeatAsset(LibraryAsset):
+    audio_file: str = Field(..., description="Relative path to the main audio file (relative to asset path)")
+    notes_file: str = Field(..., description="Relative path to the notes.txt file (relative to asset path)")
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration: Optional[float] = None
 
 class RenderConfig(BaseModel):
     audio_path: str = Field(..., description="Path to the audio file")

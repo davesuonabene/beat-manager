@@ -3,8 +3,12 @@ import os
 from datetime import datetime, timedelta
 import random
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# Project paths
+current_dir = os.path.dirname(os.path.abspath(__file__))
+app_dir = os.path.dirname(current_dir)
+PROJECT_ROOT = os.path.dirname(app_dir)
+
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 STRATEGY_FILE = os.path.join(DATA_DIR, "strategy.json")
 PLAN_FILE = os.path.join(DATA_DIR, "plan.json")
 QUEUE_FILE = os.path.join(DATA_DIR, "queue.json")
@@ -45,10 +49,10 @@ class StrategyManager:
             json.dump(self.plan, f, indent=4)
 
     def check_assets(self):
-        from audio_engine import AudioEngine
+        from app.core.audio_engine import AudioEngine
         ae = AudioEngine()
         audio_count = len(ae.audio_assets_table.all())
-        image_dir = os.path.join(BASE_DIR, "assets", "ronald")
+        image_dir = os.path.join(PROJECT_ROOT, "assets", "ronald")
         images = [f for f in os.listdir(image_dir) if f.lower().endswith(('.png', '.jpg'))] if os.path.exists(image_dir) else []
         return {
             "audio": audio_count,
@@ -170,7 +174,7 @@ class StrategyManager:
                         errors.append({"field": field, "reason": "missing_parameter"})
                     
                     if field in ["audio", "image", "video"] and val:
-                        full_path = val if os.path.isabs(val) else os.path.join(BASE_DIR, val)
+                        full_path = val if os.path.isabs(val) else os.path.join(PROJECT_ROOT, val)
                         if not os.path.exists(full_path):
                             errors.append({"field": field, "reason": "file_not_found", "path": val})
 

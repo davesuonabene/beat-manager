@@ -179,12 +179,122 @@ Button.-variant-warning {
     height: 1fr;
 }
 
-#library-left {
-    width: 30%;
+#library-main {
+    width: 1fr;
+    height: 1fr;
 }
 
-#library-right {
+#library-header {
+    height: 3;
+    align: center middle;
+    background: #190061;
+    border-bottom: tall #240090;
+    margin-bottom: 1;
+}
+
+#library-header .section-label {
+    margin: 0;
+}
+
+#library-content {
+    height: 1fr;
+}
+
+#library-main-content {
+    height: 1fr;
+    padding: 1 2;
+    background: #0d0221;
+}
+
+#library-table {
+    height: 1fr;
+    border: solid #240090;
+}
+
+#btn-open-import {
+    width: 25;
+    margin-right: 2;
+}
+
+#library-header {
+    height: 3;
+    align: center middle;
+    background: #190061;
+    border-bottom: tall #240090;
+    margin-bottom: 1;
+}
+
+#import-modal-container {
+    width: 80%;
+    height: 80%;
+    background: #0d0221;
+    border: tall #00f9ff;
+    padding: 1 2;
+}
+
+#import-modal-buttons {
+    height: 3;
+    margin-top: 1;
+    align: center middle;
+}
+
+#import-modal-buttons Button {
+    width: 25;
+    margin: 0 1;
+}
+
+.btn-icon {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    background: #240090;
+    color: #00f9ff;
+    border: none;
+    margin: 0 1;
+}
+
+#import-results-table {
+    height: 1fr;
+    margin: 1 0;
+    border: solid #240090;
+}
+
+#import-path-row {
+    height: auto;
+}
+
+#import-path-row Input {
+    width: 1fr;
+}
+
+#import-path-row Button {
+    width: 8;
+    margin-left: 1;
+}
+
+/* Path Picker Modal */
+#picker-container {
     width: 70%;
+    height: 70%;
+    background: #0d0221;
+    border: tall #00f9ff;
+    padding: 1 2;
+}
+
+#picker-tree {
+    height: 1fr;
+    border: solid #240090;
+    background: #000;
+}
+
+#picker-buttons {
+    height: 3;
+    margin-top: 1;
+}
+
+#picker-buttons Button {
+    width: 20;
+    margin: 0 1;
 }
 
 /* Strategy Layout */
@@ -260,7 +370,6 @@ DataTable > .datatable--header {
     background: #0d0221;
     border: tall #ff00ff;
     padding: 1 2;
-    align: center middle;
 }
 
 #log-text {

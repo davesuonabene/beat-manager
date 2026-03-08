@@ -3,8 +3,8 @@ import os
 import sys
 import json
 import traceback
-from state_manager import StateManager
-from strategy_manager import StrategyManager
+from app.core.state_manager import StateManager
+from app.services.strategy_manager import StrategyManager
 from app.services.dispatcher import TaskDispatcher
 from app.models.schemas import RenderConfig, UploadConfig, PrivacyEnum
 

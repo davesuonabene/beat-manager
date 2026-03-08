@@ -1,63 +1,90 @@
 # BeatManager
 
-BeatManager is a "Type Beat" channel management system designed for high-performance video rendering, YouTube automation, and SEO-driven niche analysis. It features a TUI (Terminal User Interface) for monitoring and a background worker for autonomous task execution.
+BeatManager is a professional "Type Beat" channel management system designed for high-performance video rendering, YouTube automation, and SEO-driven niche management. It features a modern TUI (Terminal User Interface) for management and a robust background worker for autonomous task execution.
+
+## 🏗️ Architecture
+
+BeatManager follows a **Modular Service-Oriented Architecture** with a decoupled **Worker-Queue** model.
+
+### Project Structure
+```text
+beat-manager/
+├── app/
+│   ├── core/               # Low-level execution engines
+│   │   ├── video_engine.py    # FFmpeg-based video composition
+│   │   ├── youtube_engine.py  # Google API-based upload manager
+│   │   ├── state_manager.py   # TinyDB state & persistence layer
+│   │   └── audio_engine.py    # Audio metadata & asset indexing
+│   ├── models/             # Data schemas and types
+│   │   └── schemas.py         # Pydantic-based configuration models
+│   └── services/           # High-level business logic
+│       ├── dispatcher.py      # Orchestrates engines and state
+│       └── strategy_manager.py# Handles planning and queueing
+├── assets/                 # Storage for audio and image assets
+├── data/                   # Strategy, plans, and queue JSON files
+├── cli.py                  # Command-line interface
+├── tui.py                  # Textual-based terminal dashboard
+├── worker.py               # Background task processor
+└── state.json              # Centralized task database (TinyDB)
+```
+
+### Core Components
+1.  **State Layer (`state_manager.py`):** Centralized repository for tasks, settings, and asset folders using TinyDB.
+2.  **Execution Engines:**
+    -   **Video Engine:** High-quality H.264 encoding via FFmpeg (1080p).
+    -   **YouTube Engine:** Secure OAuth2 uploads with scheduling support.
+    -   **Audio Engine:** Automated scanning and metadata extraction for samples.
+3.  **Dispatcher (`dispatcher.py`):** The bridge between interfaces and core logic. It manages task lifecycle (Pending -> Processing -> Finished/Error).
+4.  **Strategy Manager (`strategy_manager.py`):** Automates the creation of weekly upload plans based on user-defined niches and preferences.
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- **FFmpeg**: Required for video rendering.
-- **Python 3.10+**: Recommended version.
-- **Google Cloud Console Credentials**: `client_secrets.json` is required for YouTube uploads.
+-   **FFmpeg**: Required for video rendering.
+-   **Python 3.10+**
+-   **Google Cloud Credentials**: `client_secrets.json` in the root for YouTube API access.
 
 ### Installation
-1.  **Create Virtual Environment:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
 
 ## 🛠️ Operating the System
 
-### 1. The TUI (Interface)
-Launch the TUI to manage audio assets, queue renders, and monitor the upload status:
+### 1. The Dashboard (TUI)
+Manage assets, queue renders, and monitor activity in real-time:
 ```bash
 ./venv/bin/python3 tui.py
 ```
-*Note: If you are on i3, you can use the status bar icon or the `$mod+Ctrl+b` shortcut.*
 
 ### 2. The Worker (Background Execution)
-The worker processes all tasks (RENDER, UPLOAD) from the queue. It must be running for any "Pending" tasks to complete.
+The worker must be running to process the task queue.
+-   **Start:** `nohup ./venv/bin/python3 worker.py > worker.log 2>&1 &`
+-   **Stop:** `pkill -f worker.py`
 
-#### **Control Commands**
-- **Start Worker (Background):**
-  ```bash
-  nohup ./venv/bin/python3 worker.py > worker.log 2>&1 &
-  ```
-- **Stop Worker:**
-  ```bash
-  pkill -f worker.py
-  ```
-- **Check if Running:**
-  ```bash
-  pgrep -af worker.py
-  ```
-- **Monitor Logs:**
-  ```bash
-  tail -f worker.log
-  ```
+### 3. CLI Tool
+Direct access to engine functions:
+-   `python3 cli.py status`: View current task queue.
+-   `python3 cli.py render --audio <path> --image <path>`: Manual render.
+-   `python3 cli.py strategy --compile`: Generate new tasks from the plan.
 
-## 🖥️ i3 Integration
+---
 
-BeatManager is integrated into the i3 environment:
-- **Shortcut:** `$mod+Ctrl+b` launches the TUI.
-- **Status Bar:** Click the green ** BeatManager** icon in the top bar.
-- **Autostart:** The worker is configured to start automatically on login in `~/.config/i3/config`.
+## 📊 Project Status
 
-## 🏗️ Architecture
-The project follows a decoupled **Worker-Queue** architecture:
-1.  **TUI/Agents:** Add tasks to `state.json`.
-2.  **Worker:** Polls `state.json` and executes engines (FFmpeg, YouTube API).
-3.  **State:** Centralized persistence using TinyDB.
+-   **Phase:** Modular Refactor (Completed March 2026).
+-   **Active:** Video Rendering, YouTube Uploading (Authenticated), Asset Management, Weekly Planning.
+-   **In Development:** SEO Analytics Engine, Automated LLM-based Metadata Generation.
 
-For more technical details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+---
+
+## 🖥️ System Integration (i3/Linux)
+-   **Shortcut:** `$mod+Ctrl+b` launches the TUI.
+-   **Status Bar:** Integrates with polybar/i3status for real-time monitoring.
+-   **Autostart:** The worker is designed to run as a persistent background process.

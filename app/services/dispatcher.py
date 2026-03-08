@@ -3,8 +3,8 @@ import os
 from app.models.schemas import RenderConfig, UploadConfig, TaskResult, PrivacyEnum
 from app.core.video_engine import VideoEngine
 from app.core.youtube_engine import YouTubeEngine
-from state_manager import StateManager
-from strategy_manager import StrategyManager
+from app.core.state_manager import StateManager
+from app.services.strategy_manager import StrategyManager
 
 # Internal logger
 logger = logging.getLogger(__name__)

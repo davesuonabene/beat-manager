@@ -1,12 +1,13 @@
 import os
 import glob
 from tinydb import Query
-from state_manager import StateManager
+from app.core.state_manager import StateManager
 import mutagen
 
 # Project paths
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATE_JSON = os.path.join(BASE_DIR, "state.json")
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+STATE_JSON = os.path.join(project_root, "state.json")
 
 class AudioEngine:
     def __init__(self):

@@ -4,9 +4,11 @@ from tinydb import TinyDB, Query
 class StateManager:
     def __init__(self, db_path=None):
         if db_path is None:
-            # Default to state.json in the same directory as this file
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            db_path = os.path.join(base_dir, "state.json")
+            # Default to state.json in the project root
+            # Assuming this file is in app/core/state_manager.py
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+            db_path = os.path.join(project_root, "state.json")
         
         self.db = TinyDB(db_path)
         self.tasks_table = self.db.table('tasks')

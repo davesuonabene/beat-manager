@@ -10,7 +10,7 @@ from textual.widgets import (
     Header, Footer, Static, Input, Button, DataTable, 
     Label, TabbedContent, TabPane, Select, ListView, 
     ListItem, TextArea, LoadingIndicator, ProgressBar,
-    Digits
+    Digits, Checkbox, DirectoryTree
 )
 from textual.containers import Horizontal, Vertical, ScrollableContainer, Container, Grid, VerticalScroll
 from textual.screen import ModalScreen
@@ -23,9 +23,10 @@ from textual.reactive import reactive
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_JSON = os.path.join(BASE_DIR, "state.json")
 
-from state_manager import StateManager
-from audio_engine import AudioEngine
-from strategy_manager import StrategyManager
+from app.core.state_manager import StateManager
+from app.core.audio_engine import AudioEngine
+from app.core.library_manager_engine import LibraryManagerEngine
+from app.services.strategy_manager import StrategyManager
 from app.services.dispatcher import TaskDispatcher
 from app.models.schemas import RenderConfig, UploadConfig, PrivacyEnum
 
@@ -37,8 +38,8 @@ class Island(Container):
 
 class LogModal(ModalScreen):
     """A modal to view task logs."""
-    def __init__(self, task_id, log_text):
-        super().__init__()
+    def __init__(self, task_id, log_text, **kwargs):
+        super().__init__(**kwargs)
         self.task_id = task_id
         self.log_text = log_text
 
@@ -51,6 +52,171 @@ class LogModal(ModalScreen):
     @on(Button.Pressed, "#btn-close-log")
     def exit_modal(self) -> None:
         self.app.pop_screen()
+
+class ImportModal(ModalScreen):
+    """A modal for scanning and importing assets."""
+    def __init__(self, library_engine, callback, **kwargs):
+        super().__init__(**kwargs)
+        self.library_engine = library_engine
+        self.callback = callback
+        self.found_assets = []
+
+    def compose(self) -> ComposeResult:
+        with Container(id="import-modal-container"):
+            yield Label("IMPORT BEAT ASSETS", classes="section-label")
+            
+            with Vertical(classes="island"):
+                yield Label("Search Directory")
+                with Horizontal(id="import-path-row"):
+                    yield Input(placeholder="/path/to/beats...", id="import-search-path")
+                    yield Button("...", id="btn-import-browse", classes="btn-icon")
+                
+                yield Checkbox("Delete original files after successful import", id="import-delete-source", value=False)
+                yield Button("SCAN DIRECTORY", id="btn-import-scan", variant="primary")
+            
+            yield Label("FOUND ASSETS", classes="section-label")
+            yield DataTable(id="import-results-table", cursor_type="row")
+            
+            with Horizontal(id="import-modal-buttons"):
+                yield Button("CLOSE", id="btn-import-close")
+                yield Button("IMPORT SELECTED", id="btn-import-collect", variant="primary")
+                yield Button("IMPORT ALL", id="btn-import-all", variant="success")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#import-results-table", DataTable)
+        table.add_columns("NAME", "AUDIO FILE", "NOTES")
+
+    @on(Button.Pressed, "#btn-import-browse")
+    def handle_browse(self) -> None:
+        def on_path_selected(path: str | None) -> None:
+            if path:
+                self.query_one("#import-search-path", Input).value = path
+        self.app.push_screen(PathPicker(), on_path_selected)
+
+    @on(Button.Pressed, "#btn-import-scan")
+    def handle_scan(self) -> None:
+        try:
+            path = self.query_one("#import-search-path", Input).value
+            if not path or not os.path.exists(path):
+                self.app.notify("Please select a valid directory", severity="error")
+                return
+            
+            # Ensure it's a directory
+            if os.path.isfile(path):
+                path = os.path.dirname(path)
+
+            self.found_assets = self.library_engine.scan_for_import(path)
+            table = self.query_one("#import-results-table", DataTable)
+            table.clear()
+            for asset in self.found_assets:
+                table.add_row(
+                    asset['name'],
+                    os.path.basename(asset['audio_path']),
+                    "YES" if asset['notes_path'] else "NO"
+                )
+            self.app.notify(f"Found {len(self.found_assets)} potential assets.")
+        except Exception as e:
+            self.app.notify(f"Scan failed: {str(e)}", severity="error")
+
+    @on(Button.Pressed, "#btn-import-collect")
+    def handle_collect(self) -> None:
+        try:
+            table = self.query_one("#import-results-table", DataTable)
+            if table.cursor_row is not None:
+                idx = table.cursor_row
+                if 0 <= idx < len(self.found_assets):
+                    asset_data = self.found_assets[idx]
+                    delete_after = self.query_one("#import-delete-source", Checkbox).value
+                    
+                    asset = self.library_engine.import_beat_asset(
+                        name=asset_data['name'],
+                        audio_source=asset_data['audio_path'],
+                        notes_source=asset_data['notes_path'],
+                        delete_source=delete_after
+                    )
+                    self.app.notify(f"Successfully imported: {asset.name}", severity="information")
+                    self.callback() # Trigger refresh in parent
+                    self.handle_scan() 
+                else:
+                    self.app.notify("No valid asset selected.", severity="warning")
+            else:
+                self.app.notify("No asset selected in table", severity="warning")
+        except Exception as e:
+            import traceback
+            with open("crash.log", "w") as f:
+                f.write(traceback.format_exc())
+            self.app.notify(f"Import failed: {str(e)}", severity="error")
+
+    @on(Button.Pressed, "#btn-import-all")
+    def handle_import_all(self) -> None:
+        if not self.found_assets:
+            self.app.notify("No assets to import.", severity="warning")
+            return
+            
+        try:
+            delete_after = self.query_one("#import-delete-source", Checkbox).value
+            count = 0
+            
+            for asset_data in self.found_assets:
+                self.library_engine.import_beat_asset(
+                    name=asset_data['name'],
+                    audio_source=asset_data['audio_path'],
+                    notes_source=asset_data['notes_path'],
+                    delete_source=delete_after
+                )
+                count += 1
+                
+            self.app.notify(f"Successfully imported {count} assets.", severity="information")
+            self.callback() # Trigger refresh in parent
+            self.handle_scan() 
+            
+        except Exception as e:
+            import traceback
+            with open("crash.log", "w") as f:
+                f.write(traceback.format_exc())
+            self.app.notify(f"Bulk import failed: {str(e)}", severity="error")
+
+    @on(Button.Pressed, "#btn-import-close")
+    def close_modal(self) -> None:
+        self.dismiss()
+
+class PathPicker(ModalScreen):
+    """A modal to pick a directory."""
+    def __init__(self, initial_path: str = os.path.expanduser("~"), **kwargs):
+        super().__init__(**kwargs)
+        self.initial_path = initial_path
+
+    def compose(self) -> ComposeResult:
+        with Container(id="picker-container"):
+            yield Label("SELECT DIRECTORY / FILE", classes="section-label")
+            yield DirectoryTree(self.initial_path, id="picker-tree")
+            with Horizontal(id="picker-buttons"):
+                yield Button("CANCEL", id="btn-picker-cancel")
+                yield Button("SELECT", id="btn-picker-select", variant="success")
+
+    @on("DirectoryTree.FileSelected")
+    def handle_selected(self, event: DirectoryTree.FileSelected) -> None:
+        self.dismiss(str(event.path))
+
+    @on("DirectoryTree.DirectorySelected")
+    def handle_dir_selected(self, event: DirectoryTree.DirectorySelected) -> None:
+        pass
+
+    @on(Button.Pressed, "#btn-picker-cancel")
+    def cancel(self) -> None:
+        self.dismiss(None)
+
+    @on(Button.Pressed, "#btn-picker-select")
+    def select_current(self) -> None:
+        tree = self.query_one("#picker-tree", DirectoryTree)
+        if tree.cursor_node and tree.cursor_node.data:
+            try:
+                path = str(tree.cursor_node.data.path)
+                self.dismiss(path)
+            except AttributeError:
+                self.dismiss(str(tree.cursor_node.data))
+        else:
+            self.dismiss(str(tree.path))
 
 class DashboardTab(Container):
     """Main view with stats and current activity."""
@@ -129,61 +295,37 @@ class ProductionTab(Container):
 
 class LibraryTab(Container):
     def compose(self) -> ComposeResult:
-        with Horizontal(id="library-row"):
-            with Vertical(id="library-left", classes="island"):
-                yield Label("MANAGED FOLDERS", classes="section-label")
-                yield DataTable(id="folder-table", cursor_type="row")
-                with Horizontal(id="folder-add-strip"):
-                    yield Input(placeholder="Path...", id="folder-add-input")
-                    yield Button("ADD", id="folder-add-btn", variant="primary")
-                    yield Button("SCAN", id="folder-scan-btn")
-            
-            with Vertical(id="library-right"):
-                yield Label("AUDIO VAULT", classes="section-label")
-                yield DataTable(id="audio-table", cursor_type="row")
+        with Horizontal(id="library-header"):
+            yield Label("LIBRARY ASSETS", classes="section-label")
+            yield Button("+ IMPORT BEATS", id="btn-open-import", variant="success")
+        
+        with Vertical(id="library-main-content"):
+            yield DataTable(id="library-table", cursor_type="row")
 
     def on_mount(self) -> None:
-        ftable = self.query_one("#folder-table", DataTable)
-        ftable.add_columns("PATH", "FILES")
+        table = self.query_one("#library-table", DataTable)
+        table.add_columns("ID", "NAME", "TYPE", "BPM", "KEY", "DURATION")
         
-        atable = self.query_one("#audio-table", DataTable)
-        atable.add_columns("FILENAME", "TYPE", "DURATION", "SR", "BD")
-        
-        self.audio_engine = AudioEngine()
-        self.refresh_folders()
+        self.library_engine = LibraryManagerEngine()
+        self.refresh_library()
 
-    def refresh_folders(self) -> None:
-        ftable = self.query_one("#folder-table", DataTable)
-        ftable.clear()
-        state = StateManager(STATE_JSON)
-        from tinydb import Query
-        folders = state.get_folders()
-        for f_doc in folders:
-            path = f_doc['path']
-            count = self.audio_engine.audio_assets_table.count(Query().parent_folder == path)
-            ftable.add_row(os.path.basename(path), str(count))
+    @on(Button.Pressed, "#btn-open-import")
+    def handle_open_import(self) -> None:
+        self.app.push_screen(ImportModal(self.library_engine, self.refresh_library))
 
-    @on(DataTable.RowSelected, "#folder-table")
-    def handle_folder_selected(self, event: DataTable.RowSelected) -> None:
-        row_data = self.query_one("#folder-table", DataTable).get_row(event.row_key)
-        state = StateManager(STATE_JSON)
-        for f in state.get_folders():
-            if os.path.basename(f['path']) == row_data[0]:
-                self.load_audio_files(f['path'])
-                break
-
-    def load_audio_files(self, path: str) -> None:
-        atable = self.query_one("#audio-table", DataTable)
-        atable.clear()
-        from tinydb import Query
-        scanned_assets = self.audio_engine.audio_assets_table.search(Query().parent_folder == path)
-        for asset in scanned_assets:
-            atable.add_row(
-                asset['filename'],
-                asset['format'].upper() if asset['format'] else "???",
-                f"{asset['duration']:.1f}s" if asset.get('duration') else "N/A",
-                f"{asset['sample_rate']/1000}k" if asset.get('sample_rate') else "N/A",
-                f"{asset['bit_depth']}b" if asset.get('bit_depth') else "N/A"
+    def refresh_library(self) -> None:
+        table = self.query_one("#library-table", DataTable)
+        table.clear()
+        assets = self.library_engine.get_assets()
+        for asset in assets:
+            duration = f"{asset.get('duration', 0):.1f}s" if asset.get('duration') else "N/A"
+            table.add_row(
+                asset.get('id', 'N/A'),
+                asset.get('name', 'Unknown'),
+                asset.get('type', 'N/A').upper(),
+                str(asset.get('bpm', 'N/A')),
+                str(asset.get('key', 'N/A')),
+                duration
             )
 
 class YoutubeTab(Container):
