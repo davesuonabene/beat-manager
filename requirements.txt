@@ -5,3 +5,4 @@ textual
 python-dotenv
 tinydb
 mutagen
+pydantic

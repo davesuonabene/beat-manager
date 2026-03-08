@@ -24,11 +24,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_JSON = os.path.join(BASE_DIR, "state.json")
 
 from state_manager import StateManager
-from video_engine import VideoEngine
-from youtube_engine import YouTubeEngine
 from audio_engine import AudioEngine
 from strategy_manager import StrategyManager
-from backend import Backend
+from app.services.dispatcher import TaskDispatcher
+from app.models.schemas import RenderConfig, UploadConfig, PrivacyEnum
 
 # --- Custom Widgets ---
 
@@ -321,8 +320,7 @@ class StrategiesTab(Container):
                 self.app.notify(f"Cannot activate: {row_issues[0]}", variant="error")
                 return
 
-            backend = Backend()
-            task_id = backend.activate_from_queue(idx)
+            task_id = self.app.dispatcher.activate_from_queue(idx)
             if task_id:
                 self.refresh_queue()
                 self.app.notify(f"Task #{task_id} activated!", title="Success")
@@ -434,36 +432,54 @@ class BeatManagerApp(App):
         self.action_toggle_queue()
 
     def on_mount(self) -> None:
+        self.dispatcher = TaskDispatcher(BASE_DIR)
         self.notify("BeatManager Pro Online", title="System")
 
     def action_refresh_all(self) -> None:
         self.notify("Refreshing all data...", title="System")
 
+    @work(exclusive=True, thread=True)
     @on(Button.Pressed, "#btn-render-start")
     def handle_render(self) -> None:
         audio = self.query_one("#prod-audio", Input).value
         image = self.query_one("#prod-image", Input).value
         output = self.query_one("#prod-video", Input).value
         
-        StateManager(STATE_JSON).add_task("RENDER", output, "Pending", audio=audio, image=image)
-        self.notify(f"RENDER QUEUED: {os.path.basename(output)}")
+        config = RenderConfig(
+            audio_path=audio,
+            image_path=image,
+            output_path=output,
+            project_tag="tui_manual_render"
+        )
+        self.notify(f"RENDER STARTED: {os.path.basename(output)}")
+        result = self.dispatcher.run_render(config)
+        if result.success:
+            self.notify(f"RENDER FINISHED: {os.path.basename(output)}", variant="success")
+        else:
+            self.notify(f"RENDER FAILED: {result.error_message}", variant="error")
 
+    @work(exclusive=True, thread=True)
     @on(Button.Pressed, "#btn-yt-upload")
     def handle_yt_upload(self) -> None:
         video = self.query_one("#yt-video", Input).value
         title = self.query_one("#yt-title", Input).value
         description = self.query_one("#yt-desc", TextArea).text
-        category = self.query_one("#yt-cat", Select).value
         privacy = self.query_one("#yt-privacy", Select).value
         publish_at = self.query_one("#yt-schedule", Input).value or None
         
-        StateManager(STATE_JSON).add_task(
-            "UPLOAD", title, "Pending", 
-            video=video, description=description, 
-            category=category, privacy=privacy,
+        config = UploadConfig(
+            video_path=video,
+            title=title,
+            description=description,
+            privacy=PrivacyEnum(privacy),
             publish_at=publish_at
         )
-        self.notify(f"UPLOAD QUEUED: {title}")
+        self.notify(f"UPLOAD STARTED: {title}")
+        result = self.dispatcher.run_upload(config)
+        if result.success:
+            self.notify(f"UPLOAD FINISHED: {title} (ID: {result.output_path})", variant="success")
+        else:
+            self.notify(f"UPLOAD FAILED: {result.error_message}", variant="error")
 
 if __name__ == "__main__":
     app = BeatManagerApp()

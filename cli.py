@@ -4,10 +4,9 @@ import sys
 import json
 import traceback
 from state_manager import StateManager
-from video_engine import VideoEngine
-from youtube_engine import YouTubeEngine
 from strategy_manager import StrategyManager
-from backend import Backend
+from app.services.dispatcher import TaskDispatcher
+from app.models.schemas import RenderConfig, UploadConfig, PrivacyEnum
 
 def main():
     parser = argparse.ArgumentParser(description="Beat Manager CLI")
@@ -18,20 +17,20 @@ def main():
     render_parser.add_argument("--audio", required=True)
     render_parser.add_argument("--image", required=True)
     render_parser.add_argument("--output", default="output.mp4")
+    render_parser.add_argument("--tag", default="cli_render")
 
     # Upload Command
     upload_parser = subparsers.add_parser("upload", help="Upload a video to YouTube")
     upload_parser.add_argument("--video", required=True)
     upload_parser.add_argument("--title", required=True)
-    upload_parser.add_argument("--description", default="")
-    upload_parser.add_argument("--privacy", default="private")
+    upload_parser.add_argument("--description", default="Automated upload.")
+    upload_parser.add_argument("--privacy", default="private", choices=["private", "public", "unlisted"])
     upload_parser.add_argument("--publish_at", help="Schedule time (ISO 8601)")
 
     # Queue Command
     queue_parser = subparsers.add_parser("queue", help="Manage the weekly queue")
     queue_parser.add_argument("--list", action="store_true", help="List all items in the weekly queue")
     queue_parser.add_argument("--activate", type=int, help="Activate a queue item by index")
-    queue_parser.add_argument("--check", action="store_true", help="Perform machine-readable validation")
 
     # Process Command
     process_parser = subparsers.add_parser("process", help="Execute pending tasks in the state")
@@ -46,51 +45,72 @@ def main():
     subparsers.add_parser("status", help="Show current state tasks")
 
     args = parser.parse_args()
-    state = StateManager()
-    backend = Backend()
+    
+    # Initialize Dispatcher (handles State and Strategy managers internally)
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    dispatcher = TaskDispatcher(project_root)
 
     if args.command == "render":
-        task_id = state.add_task("RENDER", args.output, audio=args.audio, image=args.image)
-        backend.process_task(task_id)
+        config = RenderConfig(
+            audio_path=args.audio,
+            image_path=args.image,
+            output_path=args.output,
+            project_tag=args.tag
+        )
+        print(f"Starting render: {args.output}...")
+        result = dispatcher.run_render(config)
+        if result.success:
+            print(f"SUCCESS: Video rendered to {result.output_path}")
+        else:
+            print(f"FAILED: {result.error_message}")
 
     elif args.command == "upload":
-        task_id = state.add_task("UPLOAD", args.title, video=args.video, publish_at=args.publish_at)
-        backend.process_task(task_id)
+        config = UploadConfig(
+            video_path=args.video,
+            title=args.title,
+            description=args.description,
+            privacy=PrivacyEnum(args.privacy),
+            publish_at=args.publish_at
+        )
+        print(f"Starting upload: {args.title}...")
+        result = dispatcher.run_upload(config)
+        if result.success:
+            print(f"SUCCESS: Uploaded! Video ID: {result.output_path}")
+        else:
+            print(f"FAILED: {result.error_message}")
 
     elif args.command == "queue":
         if args.list:
-            queue = StrategyManager().get_queue()
+            queue = dispatcher.strategy_manager.get_queue()
             print(f"{'IDX':<4} | {'TIME':<20} | {'ACTION':<15} | {'STATUS'}")
             print("-" * 55)
             for idx, item in enumerate(queue):
                 print(f"{idx:<4} | {item['timestamp']:<20} | {item['action']:<15} | {item['status']}")
         
-        elif args.check:
-            issues = StrategyManager().validate_queue()
-            print(json.dumps(issues, indent=2))
-
         elif args.activate is not None:
-            task_id = backend.activate_from_queue(args.activate)
+            task_id = dispatcher.activate_from_queue(args.activate)
             if task_id:
-                # Pre-flight check immediately after activation
-                check = backend.pre_flight_check(task_id)
-                if not check["ready"]:
-                    print(f"Task #{task_id} activated but PRE-FLIGHT FAILED: {', '.join(check.get('errors', []))}")
-                else:
-                    print(f"Task #{task_id} activated and passed pre-flight. Run 'process --id {task_id}' to execute.")
+                print(f"Task #{task_id} activated. Run 'process --id {task_id}' to execute.")
             else:
-                print("Failed to activate task. Check if index is valid and status is 'pending'.")
+                print("Failed to activate task. Check if index is valid and status is not 'scheduled'.")
 
     elif args.command == "process":
         if args.id:
-            backend.process_task(args.id)
+            result = dispatcher.process_task(args.id)
+            if result.success:
+                print(f"Task #{args.id} completed.")
+            else:
+                print(f"Task #{args.id} failed: {result.error_message}")
         else:
-            pending = state.get_pending_tasks()
+            pending = dispatcher.state.get_pending_tasks()
+            if not pending:
+                print("No pending tasks.")
             for t in pending:
-                backend.process_task(t.doc_id)
+                print(f"Processing Task #{t.doc_id} ({t['type']})...")
+                dispatcher.process_task(t.doc_id)
 
     elif args.command == "strategy":
-        sm = StrategyManager()
+        sm = dispatcher.strategy_manager
         if args.compile:
             sm.compile_queue_from_plan()
             print("Queue compiled from plan.")
@@ -99,7 +119,7 @@ def main():
             print("PLAN:", json.dumps(sm.get_plan(), indent=2))
 
     elif args.command == "status":
-        tasks = state.get_tasks()
+        tasks = dispatcher.state.get_tasks()
         if not tasks:
             print("No tasks in state.")
         else:
