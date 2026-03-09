@@ -1,33 +1,60 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from enum import Enum
 from datetime import datetime
+import uuid
 
 class PrivacyEnum(str, Enum):
     PRIVATE = "private"
     UNLISTED = "unlisted"
     PUBLIC = "public"
 
-class AssetType(str, Enum):
-    BEAT = "beat"
-    SAMPLE = "sample"
+class AssetDataType(str, Enum):
+    AUDIO = "audio"
     IMAGE = "image"
     VIDEO = "video"
+    DOCUMENT = "document"
+
+class AssetType(str, Enum):
+    RAW = "raw"
+    BEAT = "beat"
+    SAMPLE = "sample"
+    COVER = "cover"
+    PROJECT = "project"
 
 class LibraryAsset(BaseModel):
-    id: str = Field(..., description="Unique identifier for the asset (slug or UUID)")
-    type: AssetType = Field(..., description="The type of asset")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the asset")
+    data_type: AssetDataType = Field(..., description="The primitive data type")
+    asset_type: AssetType = Field(default=AssetType.RAW, description="The logical type of asset")
     name: str = Field(..., description="Display name for the asset")
-    path: str = Field(..., description="The directory containing the asset files")
+    path: str = Field(..., description="Absolute path to the asset folder or file")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the asset")
 
+class AudioAsset(LibraryAsset):
+    data_type: AssetDataType = AssetDataType.AUDIO
+    audio_file: str = Field(..., description="Filename of the audio")
+    notes_file: Optional[str] = None
+    duration: Optional[float] = None
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+
+class ImageAsset(LibraryAsset):
+    data_type: AssetDataType = AssetDataType.IMAGE
+    asset_type: AssetType = AssetType.COVER
+    width: Optional[int] = None
+    height: Optional[int] = None
+
 class BeatAsset(LibraryAsset):
-    audio_file: str = Field(..., description="Relative path to the main audio file (relative to asset path)")
-    notes_file: str = Field(..., description="Relative path to the notes.txt file (relative to asset path)")
+    data_type: AssetDataType = AssetDataType.AUDIO
+    asset_type: AssetType = AssetType.BEAT
+    # Links to audio files within the beat folder
+    versions: Dict[str, str] = Field(default_factory=dict, description="Map of version name to filename (e.g. {'main': 'beat.wav'})")
+    notes_file: str = "notes.txt"
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration: Optional[float] = None
+    cover_image_id: Optional[str] = Field(None, description="ID of the ImageAsset used as cover")
 
 class RenderConfig(BaseModel):
     audio_path: str = Field(..., description="Path to the audio file")
@@ -41,10 +68,6 @@ class UploadConfig(BaseModel):
     description: str = Field(default="Automated upload.", description="YouTube video description")
     privacy: PrivacyEnum = Field(default=PrivacyEnum.PRIVATE, description="Video privacy setting")
     publish_at: Optional[str] = Field(None, description="ISO 8601 formatted string for scheduled publishing")
-
-class ResearchConfig(BaseModel):
-    niche: str = Field(..., description="Niche or topic for research")
-    keywords_count: int = Field(default=10, description="Number of keywords to extract")
 
 class TaskResult(BaseModel):
     success: bool = Field(..., description="Whether the task completed successfully")

@@ -3,7 +3,7 @@ import glob
 import json
 import time
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 from textual.app import App, ComposeResult, RenderResult
 from textual.widgets import (
@@ -36,6 +36,30 @@ class Island(Container):
     """A minimalist panel with breathing room."""
     pass
 
+class LibraryFilterBar(Horizontal):
+    """Modular bar for filtering library assets."""
+    class Changed(Message):
+        def __init__(self, search: str, type_filter: str):
+            self.search = search
+            self.type_filter = type_filter
+            super().__init__()
+
+    def compose(self) -> ComposeResult:
+        yield Input(placeholder="Search assets...", id="lib-filter-search")
+        yield Select([
+            ("ALL TYPES", "all"),
+            ("RAW AUDIO", "raw"),
+            ("BEATS", "beat"),
+            ("IMAGES", "cover")
+        ], id="lib-filter-type", value="all")
+
+    @on(Input.Changed, "#lib-filter-search")
+    @on(Select.Changed, "#lib-filter-type")
+    def handle_change(self) -> None:
+        search = self.query_one("#lib-filter-search", Input).value
+        type_filter = self.query_one("#lib-filter-type", Select).value
+        self.post_message(self.Changed(search, str(type_filter)))
+
 class LogModal(ModalScreen):
     """A modal to view task logs."""
     def __init__(self, task_id, log_text, **kwargs):
@@ -53,47 +77,66 @@ class LogModal(ModalScreen):
     def exit_modal(self) -> None:
         self.app.pop_screen()
 
-class ImportModal(ModalScreen):
-    """A modal for scanning and importing assets."""
-    def __init__(self, library_engine, callback, **kwargs):
+class ImportOverlay(Container):
+    """A slide-up overlay for scanning and importing assets."""
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.library_engine = library_engine
-        self.callback = callback
         self.found_assets = []
 
     def compose(self) -> ComposeResult:
-        with Container(id="import-modal-container"):
-            yield Label("IMPORT BEAT ASSETS", classes="section-label")
-            
-            with Vertical(classes="island"):
-                yield Label("Search Directory")
+        yield Label("IMPORT ASSETS", classes="section-label")
+        
+        with Horizontal(id="import-controls-row"):
+            with Vertical(id="import-path-col"):
                 with Horizontal(id="import-path-row"):
-                    yield Input(placeholder="/path/to/beats...", id="import-search-path")
-                    yield Button("...", id="btn-import-browse", classes="btn-icon")
-                
-                yield Checkbox("Delete original files after successful import", id="import-delete-source", value=False)
-                yield Button("SCAN DIRECTORY", id="btn-import-scan", variant="primary")
-            
-            yield Label("FOUND ASSETS", classes="section-label")
-            yield DataTable(id="import-results-table", cursor_type="row")
-            
-            with Horizontal(id="import-modal-buttons"):
-                yield Button("CLOSE", id="btn-import-close")
-                yield Button("IMPORT SELECTED", id="btn-import-collect", variant="primary")
-                yield Button("IMPORT ALL", id="btn-import-all", variant="success")
+                    yield Input(placeholder="/path/to/assets...", id="import-search-path")
+                    yield Button("...", id="btn-import-browse", classes="btn-icon", tooltip="Browse")
+                    yield Button("🔄", id="btn-import-scan", classes="btn-icon", tooltip="Refresh Directory")
+            with Vertical(id="import-toggles-col"):
+                yield Checkbox("Delete sources after import", id="import-delete-source", value=False)
+                yield Checkbox("Skip existing items", id="import-skip-dupes", value=True)
+        
+        yield DataTable(id="import-results-table", cursor_type="row")
+        
+        with Horizontal(id="import-modal-buttons"):
+            yield Button("CLOSE", id="btn-import-close")
+            yield Button("▶ PREVIEW", id="btn-import-preview", variant="warning")
+            yield Button("IMPORT SELECTED", id="btn-import-collect", variant="primary")
+            yield Button("IMPORT ALL", id="btn-import-all", variant="success")
 
     def on_mount(self) -> None:
         table = self.query_one("#import-results-table", DataTable)
-        table.add_columns("NAME", "AUDIO FILE", "NOTES")
+        table.add_columns("NAME", "TYPE", "PATH", "STATUS")
+
+    @on(Button.Pressed, "#btn-import-preview")
+    def handle_preview(self) -> None:
+        table = self.query_one("#import-results-table", DataTable)
+        if table.cursor_row is not None:
+            idx = table.cursor_row
+            if 0 <= idx < len(self.found_assets):
+                asset_data = self.found_assets[idx]
+                if asset_data['type'] == 'audio':
+                    self.app.audio_engine.play_preview(asset_data['path'])
+                    self.app.notify(f"Previewing: {os.path.basename(asset_data['path'])}")
+                else:
+                    self.app.notify("Only audio can be previewed", severity="warning")
+
+    @on(Button.Pressed, "#btn-import-close")
+    def close_overlay(self) -> None:
+        self.app.audio_engine.stop_preview()
+        self.add_class("hidden")
+        self.app.action_refresh_library() # Custom action to trigger refresh from app level
 
     @on(Button.Pressed, "#btn-import-browse")
     def handle_browse(self) -> None:
         def on_path_selected(path: str | None) -> None:
             if path:
                 self.query_one("#import-search-path", Input).value = path
+                self.handle_scan() 
         self.app.push_screen(PathPicker(), on_path_selected)
 
     @on(Button.Pressed, "#btn-import-scan")
+    @on(Input.Submitted, "#import-search-path")
     def handle_scan(self) -> None:
         try:
             path = self.query_one("#import-search-path", Input).value
@@ -101,18 +144,18 @@ class ImportModal(ModalScreen):
                 self.app.notify("Please select a valid directory", severity="error")
                 return
             
-            # Ensure it's a directory
             if os.path.isfile(path):
                 path = os.path.dirname(path)
 
-            self.found_assets = self.library_engine.scan_for_import(path)
+            self.found_assets = self.app.library_engine.scan_for_import(path)
             table = self.query_one("#import-results-table", DataTable)
             table.clear()
             for asset in self.found_assets:
                 table.add_row(
                     asset['name'],
-                    os.path.basename(asset['audio_path']),
-                    "YES" if asset['notes_path'] else "NO"
+                    asset['type'].upper(),
+                    os.path.basename(asset['path']),
+                    asset.get('status', 'Ready')
                 )
             self.app.notify(f"Found {len(self.found_assets)} potential assets.")
         except Exception as e:
@@ -127,24 +170,33 @@ class ImportModal(ModalScreen):
                 if 0 <= idx < len(self.found_assets):
                     asset_data = self.found_assets[idx]
                     delete_after = self.query_one("#import-delete-source", Checkbox).value
+                    skip_dupes = self.query_one("#import-skip-dupes", Checkbox).value
                     
-                    asset = self.library_engine.import_beat_asset(
-                        name=asset_data['name'],
-                        audio_source=asset_data['audio_path'],
-                        notes_source=asset_data['notes_path'],
-                        delete_source=delete_after
-                    )
+                    if skip_dupes and asset_data.get('status') == 'Exists':
+                        self.app.notify(f"Skipped {asset_data['name']} (Already exists)", severity="warning")
+                        return
+
+                    if asset_data['type'] == 'audio':
+                        asset = self.app.library_engine.import_raw_audio(
+                            name=asset_data['name'],
+                            audio_source=asset_data['path'],
+                            notes_source=asset_data['notes_path'],
+                            delete_source=delete_after
+                        )
+                    else: 
+                        asset = self.app.library_engine.import_image(
+                            name=asset_data['name'],
+                            source_path=asset_data['path'],
+                            delete_source=delete_after
+                        )
+                        
                     self.app.notify(f"Successfully imported: {asset.name}", severity="information")
-                    self.callback() # Trigger refresh in parent
                     self.handle_scan() 
                 else:
                     self.app.notify("No valid asset selected.", severity="warning")
             else:
                 self.app.notify("No asset selected in table", severity="warning")
         except Exception as e:
-            import traceback
-            with open("crash.log", "w") as f:
-                f.write(traceback.format_exc())
             self.app.notify(f"Import failed: {str(e)}", severity="error")
 
     @on(Button.Pressed, "#btn-import-all")
@@ -155,30 +207,36 @@ class ImportModal(ModalScreen):
             
         try:
             delete_after = self.query_one("#import-delete-source", Checkbox).value
+            skip_dupes = self.query_one("#import-skip-dupes", Checkbox).value
             count = 0
+            skipped = 0
             
             for asset_data in self.found_assets:
-                self.library_engine.import_beat_asset(
-                    name=asset_data['name'],
-                    audio_source=asset_data['audio_path'],
-                    notes_source=asset_data['notes_path'],
-                    delete_source=delete_after
-                )
+                if skip_dupes and asset_data.get('status') == 'Exists':
+                    skipped += 1
+                    continue
+                    
+                if asset_data['type'] == 'audio':
+                    self.app.library_engine.import_raw_audio(
+                        name=asset_data['name'],
+                        audio_source=asset_data['path'],
+                        notes_source=asset_data['notes_path'],
+                        delete_source=delete_after
+                    )
+                else: 
+                    self.app.library_engine.import_image(
+                        name=asset_data['name'],
+                        source_path=asset_data['path'],
+                        delete_source=delete_after
+                    )
                 count += 1
                 
-            self.app.notify(f"Successfully imported {count} assets.", severity="information")
-            self.callback() # Trigger refresh in parent
+            msg = f"Imported {count} assets."
+            if skipped > 0: msg += f" Skipped {skipped} duplicates."
+            self.app.notify(msg, severity="information")
             self.handle_scan() 
-            
         except Exception as e:
-            import traceback
-            with open("crash.log", "w") as f:
-                f.write(traceback.format_exc())
             self.app.notify(f"Bulk import failed: {str(e)}", severity="error")
-
-    @on(Button.Pressed, "#btn-import-close")
-    def close_modal(self) -> None:
-        self.dismiss()
 
 class PathPicker(ModalScreen):
     """A modal to pick a directory."""
@@ -198,10 +256,6 @@ class PathPicker(ModalScreen):
     def handle_selected(self, event: DirectoryTree.FileSelected) -> None:
         self.dismiss(str(event.path))
 
-    @on("DirectoryTree.DirectorySelected")
-    def handle_dir_selected(self, event: DirectoryTree.DirectorySelected) -> None:
-        pass
-
     @on(Button.Pressed, "#btn-picker-cancel")
     def cancel(self) -> None:
         self.dismiss(None)
@@ -220,7 +274,6 @@ class PathPicker(ModalScreen):
 
 class DashboardTab(Container):
     """Main view with stats and current activity."""
-    
     total_tasks = reactive(0)
     finished_tasks = reactive(0)
     error_tasks = reactive(0)
@@ -251,7 +304,6 @@ class DashboardTab(Container):
     def update_stats(self) -> None:
         state = StateManager(STATE_JSON)
         tasks = state.get_tasks()
-        
         self.total_tasks = len(tasks)
         self.finished_tasks = len([t for t in tasks if t['status'] in ['Finished', 'Uploaded', 'Uploaded Metadata']])
         self.error_tasks = len([t for t in tasks if t['status'] == 'Error'])
@@ -267,16 +319,12 @@ class DashboardTab(Container):
 
     def watch_total_tasks(self, value: int) -> None:
         self.query_one("#stat-total", Digits).update(str(value))
-
     def watch_finished_tasks(self, value: int) -> None:
         self.query_one("#stat-finished", Digits).update(str(value))
-
     def watch_error_tasks(self, value: int) -> None:
         self.query_one("#stat-errors", Digits).update(str(value))
-
     def watch_active_task_name(self, value: str) -> None:
         self.query_one("#active-task-title", Label).update(value)
-
     def watch_active_task_progress(self, value: float) -> None:
         self.query_one("#active-progress", ProgressBar).progress = value
 
@@ -294,39 +342,344 @@ class ProductionTab(Container):
                 yield Button("QUEUE RENDER JOB", id="btn-render-start", variant="success")
 
 class LibraryTab(Container):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.editing_coordinate = None
+        self.editing_field = None
+        self.editing_asset_id = None
+
     def compose(self) -> ComposeResult:
         with Horizontal(id="library-header"):
-            yield Label("LIBRARY ASSETS", classes="section-label")
-            yield Button("+ IMPORT BEATS", id="btn-open-import", variant="success")
+            yield Label("LIBRARY", id="lib-title")
+            yield LibraryFilterBar()
+            with Horizontal(id="lib-actions"):
+                yield Button("▶", id="btn-library-preview", variant="warning", tooltip="Preview [P]")
+                yield Button("🎹", id="btn-library-make-beat", variant="primary", tooltip="Beat-ify [B]")
+                yield Button("🖼️", id="btn-library-link-cover", variant="default", tooltip="Set Cover [C]")
+                yield Button("🔄", id="btn-library-sync", variant="default", tooltip="Sync [F5]")
+                yield Button("➕", id="btn-open-import", variant="success", tooltip="Import")
+                yield Button("🗑️", id="btn-library-delete", variant="error", tooltip="Delete [DEL]")
         
         with Vertical(id="library-main-content"):
-            yield DataTable(id="library-table", cursor_type="row")
+            with Container(id="library-table-container"):
+                yield DataTable(id="library-table", cursor_type="cell")
+                yield Input(id="inline-editor", classes="hidden")
 
-    def on_mount(self) -> None:
-        table = self.query_one("#library-table", DataTable)
-        table.add_columns("ID", "NAME", "TYPE", "BPM", "KEY", "DURATION")
+    BINDINGS = [
+        Binding("p", "preview", "Preview"),
+        Binding("s", "stop", "Stop"),
+        Binding("b", "make_beat", "Make Beat"),
+        Binding("r", "rename_asset", "Rename"),
+        Binding("delete", "delete_asset", "Delete"),
+        Binding("ctrl+a", "select_all", "Select All"),
+        Binding("f5", "sync_library", "Sync with disk"),
+        Binding("c", "set_cover", "Set as Cover"),
+        Binding("escape", "cancel_edit", "Cancel Edit", show=False),
+    ]
+
+    def _get_selected_ids(self) -> List[str]:
+        try:
+            table = self.query_one("#library-table", DataTable)
+        except: return []
         
-        self.library_engine = LibraryManagerEngine()
+        selected_ids = []
+        selected_rows = getattr(table, "selected_rows", set())
+        if selected_rows:
+            for key in selected_rows:
+                try:
+                    row = table.get_row(key)
+                    selected_ids.append(str(row[0]))
+                except: continue
+        elif table.cursor_row is not None:
+            try:
+                row_keys = list(table.rows.keys())
+                if 0 <= table.cursor_row < len(row_keys):
+                    row = table.get_row(row_keys[table.cursor_row])
+                    selected_ids.append(str(row[0]))
+            except: pass
+        return selected_ids
+
+    def action_preview(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: return
+        
+        asset_id = ids[0]
+        all_assets = self.library_engine.get_assets()
+        asset = next((a for a in all_assets if str(a.get('id')) == asset_id), None)
+        
+        if asset:
+            if asset.get('data_type') != 'audio':
+                self.app.notify("Only audio assets can be previewed.", severity="warning")
+                return
+
+            asset_type = asset.get('asset_type', asset.get('type', 'raw'))
+            audio_path = ""
+            if asset_type == 'raw':
+                audio_path = asset.get('path', '')
+            else:
+                main_file = asset.get('versions', {}).get('main', asset.get('audio_file', ''))
+                audio_path = os.path.join(asset.get('path', ''), main_file)
+            
+            if audio_path and os.path.exists(audio_path) and os.path.isfile(audio_path):
+                self.app.audio_engine.play_preview(audio_path)
+                self.app.notify(f"Previewing: {asset.get('name', 'Unknown')}")
+            else:
+                self.app.notify(f"Audio file not found", severity="error")
+
+    def action_make_beat(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids:
+            self.app.notify("No assets selected", severity="warning")
+            return
+            
+        count = 0
+        for asset_id in ids:
+            try:
+                self.library_engine.create_beat_from_audio(asset_id)
+                count += 1
+            except Exception: continue
+        
+        if count > 0:
+            self.app.notify(f"Created {count} beats.")
+            self.refresh_library()
+
+    def action_set_cover(self) -> None:
+        ids = self._get_selected_ids()
+        all_assets = self.library_engine.get_assets()
+        selected = [a for a in all_assets if str(a.get('id')) in ids]
+        
+        beats = [a for a in selected if a.get('asset_type') == 'beat']
+        images = [a for a in selected if a.get('data_type') == 'image']
+        
+        if not beats or not images:
+            self.app.notify("Select at least one BEAT and one IMAGE to link.", severity="warning")
+            return
+            
+        try:
+            self.library_engine.set_beat_cover(beats[0]['id'], images[0]['id'])
+            self.app.notify(f"Cover linked: {images[0]['name']} -> {beats[0]['name']}", severity="information")
+            self.refresh_library()
+        except Exception as e:
+            self.app.notify(f"Link failed: {str(e)}", severity="error")
+
+    def action_delete_asset(self) -> None:
+        try:
+            ids = self._get_selected_ids()
+            if not ids:
+                self.app.notify("No assets selected", severity="warning")
+                return
+                
+            table = self.query_one("#library-table", DataTable)
+            if hasattr(table, "selected_rows"):
+                table.selected_rows = set()
+            
+            deleted_count = 0
+            for asset_id in ids:
+                if self.library_engine.delete_asset(asset_id):
+                    deleted_count += 1
+                    
+            if deleted_count > 0:
+                self.app.notify(f"Deleted {deleted_count} assets.")
+                self.refresh_library()
+        except Exception as e:
+            self.app.notify(f"Delete failed: {str(e)}", severity="error")
+
+    def action_sync_library(self) -> None:
+        self.app.notify("Syncing library...")
+        removed = self.library_engine.sync_library_with_disk()
+        if removed > 0:
+            self.app.notify(f"Pruned {removed} missing assets.", severity="warning")
+        else:
+            self.app.notify("Library is in sync with disk.")
         self.refresh_library()
+
+    def action_select_all(self) -> None:
+        table = self.query_one("#library-table", DataTable)
+        for row_key in table.rows:
+            table.select_row(row_key)
+        self.app.notify("Selected all filtered assets")
+
+    def action_stop(self) -> None:
+        self.app.audio_engine.stop_preview()
+        self.app.notify("Preview stopped.")
+
+    @on(Button.Pressed, "#btn-library-sync")
+    def handle_sync(self) -> None:
+        self.action_sync_library()
+
+    @on(Button.Pressed, "#btn-library-preview")
+    def handle_preview(self) -> None:
+        self.action_preview()
+
+    @on(Button.Pressed, "#btn-library-make-beat")
+    def handle_make_beat(self) -> None:
+        self.action_make_beat()
+
+    @on(Button.Pressed, "#btn-library-link-cover")
+    def handle_link_cover(self) -> None:
+        self.action_set_cover()
+
+    @on(Button.Pressed, "#btn-library-delete")
+    def handle_delete(self) -> None:
+        self.action_delete_asset()
+
+    def action_toggle_import(self) -> None:
+        self.app.action_toggle_import()
 
     @on(Button.Pressed, "#btn-open-import")
     def handle_open_import(self) -> None:
-        self.app.push_screen(ImportModal(self.library_engine, self.refresh_library))
+        self.action_toggle_import()
 
-    def refresh_library(self) -> None:
+    def on_library_filter_bar_changed(self, event: LibraryFilterBar.Changed) -> None:
+        self.refresh_library(search=event.search, type_filter=event.type_filter)
+
+    def on_mount(self) -> None:
         table = self.query_one("#library-table", DataTable)
-        table.clear()
-        assets = self.library_engine.get_assets()
-        for asset in assets:
-            duration = f"{asset.get('duration', 0):.1f}s" if asset.get('duration') else "N/A"
-            table.add_row(
-                asset.get('id', 'N/A'),
-                asset.get('name', 'Unknown'),
-                asset.get('type', 'N/A').upper(),
-                str(asset.get('bpm', 'N/A')),
-                str(asset.get('key', 'N/A')),
-                duration
-            )
+        try: table.multiselect = True
+        except: pass
+        table.add_columns("ID", "NAME", "TYPE", "DATA", "BPM", "KEY", "DUR")
+        self.library_engine = LibraryManagerEngine()
+        self.assets = []
+        self.refresh_library()
+
+    @on(DataTable.CellSelected, "#library-table")
+    def handle_cell_selected(self, event: DataTable.CellSelected) -> None:
+        try:
+            col_idx = event.coordinate.column
+            if col_idx not in (1, 4, 5): # 1: NAME, 4: BPM, 5: KEY
+                return
+                
+            table = self.query_one("#library-table", DataTable)
+            row_keys = list(table.rows.keys())
+            if event.coordinate.row >= len(row_keys):
+                return
+                
+            row_key = row_keys[event.coordinate.row]
+            row_data = table.get_row(row_key)
+            asset_id = str(row_data[0])
+            
+            asset = next((a for a in self.assets if str(a.get('id')) == asset_id), None)
+            if not asset: return
+
+            field_map = {1: "name", 4: "bpm", 5: "key"}
+            field_name = field_map[col_idx]
+            
+            # BPM and Key only editable for Beats
+            asset_type = asset.get('asset_type', asset.get('type', 'raw'))
+            if field_name in ("bpm", "key") and asset_type != "beat":
+                self.app.notify("BPM and Key can only be edited for BEATS.", severity="warning")
+                return
+
+            current_val = asset.get(field_name, "")
+            if current_val is None: current_val = ""
+
+            # Position inline editor
+            inp = self.query_one("#inline-editor", Input)
+            region = table._get_cell_region(event.coordinate)
+            
+            y_offset = region.y - table.scroll_offset.y
+            x_offset = region.x - table.scroll_offset.x
+            
+            # If scrolled out of view, don't show
+            if y_offset < 0 or y_offset >= table.size.height:
+                return
+                
+            inp.styles.offset = (x_offset, y_offset)
+            inp.styles.width = region.width
+            
+            inp.value = str(current_val)
+            self.editing_field = field_name
+            self.editing_asset_id = asset_id
+            
+            inp.remove_class("hidden")
+            inp.focus()
+
+        except Exception as e:
+            pass
+
+    @on(Input.Submitted, "#inline-editor")
+    def handle_inline_edit_submit(self, event: Input.Submitted) -> None:
+        new_val = event.value
+        inp = self.query_one("#inline-editor", Input)
+        inp.add_class("hidden")
+        self.query_one("#library-table", DataTable).focus()
+
+        if not getattr(self, "editing_asset_id", None): return
+
+        field_name = self.editing_field
+        asset_id = self.editing_asset_id
+        
+        # Reset tracking
+        self.editing_asset_id = None
+        self.editing_field = None
+
+        try:
+            if field_name == "name":
+                self.library_engine.rename_asset(asset_id, new_val)
+            else:
+                # Parse BPM to float if possible
+                val_to_save = new_val
+                if field_name == "bpm":
+                    try: val_to_save = float(new_val) if new_val.strip() else None
+                    except: return self.app.notify("Invalid BPM format.", severity="error")
+                
+                self.library_engine.update_asset(asset_id, {field_name: val_to_save})
+                
+            self.refresh_library()
+        except Exception as e:
+            self.app.notify(f"Failed to update: {str(e)}", severity="error")
+
+    def action_cancel_edit(self) -> None:
+        try:
+            inp = self.query_one("#inline-editor", Input)
+            if not inp.has_class("hidden"):
+                inp.add_class("hidden")
+                self.query_one("#library-table", DataTable).focus()
+                self.editing_asset_id = None
+                self.editing_field = None
+        except: pass
+
+    def refresh_library(self, search: str | None = None, type_filter: str | None = None) -> None:
+        try:
+            table = self.query_one("#library-table", DataTable)
+            if search is None or type_filter is None:
+                try:
+                    fb = self.query_one(LibraryFilterBar)
+                    search = fb.query_one("#lib-filter-search", Input).value if search is None else search
+                    type_filter = str(fb.query_one("#lib-filter-type", Select).value) if type_filter is None else type_filter
+                except:
+                    search = search or ""
+                    type_filter = type_filter or "all"
+
+            all_assets = self.library_engine.get_assets()
+            filtered = []
+            for a in all_assets:
+                a_type = a.get('asset_type', a.get('type', 'raw'))
+                if type_filter != "all" and a_type != type_filter: continue
+                if search and search.lower() not in a.get('name', '').lower(): continue
+                filtered.append(a)
+            
+            self.assets = filtered
+            table.clear()
+            for a in self.assets:
+                dur = f"{a.get('duration', 0):.1f}s" if a.get('duration') else "N/A"
+                d_type = a.get('data_type', 'AUDIO').upper()
+                bpm = str(a.get('bpm', '')) if a.get('bpm') else ""
+                key = str(a.get('key', '')) if a.get('key') else ""
+                
+                table.add_row(
+                    a.get('id', 'N/A'),
+                    a.get('name', 'Unknown'),
+                    a.get('asset_type', 'N/A').upper(),
+                    d_type,
+                    bpm,
+                    key,
+                    dur
+                )
+        except Exception as e:
+            import traceback
+            with open("crash.log", "a") as f:
+                f.write(f"\n[{datetime.now().isoformat()}] refresh_library CRASH: {str(e)}\n{traceback.format_exc()}\n")
 
 class YoutubeTab(Container):
     def compose(self) -> ComposeResult:
@@ -428,9 +781,9 @@ class StrategiesTab(Container):
             raw = self.query_one("#strat-json", TextArea).text
             data = json.loads(raw)
             StrategyManager().save_strategy(data)
-            self.app.notify("Strategy JSON saved!", title="Success")
+            self.app.notify("Strategy JSON saved!", severity="information")
         except Exception as e:
-            self.app.notify(f"Invalid JSON: {str(e)}", variant="error")
+            self.app.notify(f"Invalid JSON: {str(e)}", severity="error")
 
     @on(Button.Pressed, "#btn-plan-compile")
     def handle_plan_compile(self) -> None:
@@ -442,9 +795,9 @@ class StrategiesTab(Container):
             sm.compile_queue_from_plan()
             self.refresh_queue()
             self.check_assets()
-            self.app.notify("Plan saved and Queue compiled!", title="Success")
+            self.app.notify("Plan saved and Queue compiled!", severity="information")
         except Exception as e:
-            self.app.notify(f"Invalid Plan JSON: {str(e)}", variant="error")
+            self.app.notify(f"Invalid Plan JSON: {str(e)}", severity="error")
 
     @on(Button.Pressed, "#btn-strat-activate")
     def handle_strat_activate(self) -> None:
@@ -459,15 +812,15 @@ class StrategiesTab(Container):
             row_issues = [iss for issue in issues if (iss := issue) and f"Row {idx}:" in issue]
             
             if row_issues:
-                self.app.notify(f"Cannot activate: {row_issues[0]}", variant="error")
+                self.app.notify(f"Cannot activate: {row_issues[0]}", severity="error")
                 return
 
             task_id = self.app.dispatcher.activate_from_queue(idx)
             if task_id:
                 self.refresh_queue()
-                self.app.notify(f"Task #{task_id} activated!", title="Success")
+                self.app.notify(f"Task #{task_id} activated!", severity="information")
             else:
-                self.app.notify("Failed to activate task (maybe already scheduled).", variant="error")
+                self.app.notify("Failed to activate task (maybe already scheduled).", severity="error")
 
     @on(DataTable.RowSelected, "#strat-queue-table")
     def on_task_selected(self, event: DataTable.RowSelected) -> None:
@@ -489,9 +842,9 @@ class StrategiesTab(Container):
                 sm = StrategyManager()
                 if sm.update_queue_item(idx, new_details):
                     self.refresh_queue()
-                    self.app.notify("Task parameters updated!", title="Success")
+                    self.app.notify("Task parameters updated!", severity="information")
             except Exception as e:
-                self.app.notify(f"Invalid JSON: {str(e)}", variant="error")
+                self.app.notify(f"Invalid JSON: {str(e)}", severity="error")
 
 class QueuePanel(Container):
     def compose(self) -> ComposeResult:
@@ -537,12 +890,14 @@ class BeatManagerApp(App):
     TITLE = "BEAT MANAGER PRO"
     CSS_PATH = "styles.tcss"
 
-    show_queue = reactive(True)
+    show_queue = reactive(False)
+    show_import = reactive(False)
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
         Binding("r", "refresh_all", "Refresh UI", show=True),
         Binding("ctrl+q", "toggle_queue", "Toggle Queue", show=True),
+        Binding("ctrl+i", "toggle_import", "Toggle Import", show=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -558,9 +913,11 @@ class BeatManagerApp(App):
                 yield YoutubeTab()
             with TabPane("STRATEGIES"):
                 yield StrategiesTab()
-        yield QueuePanel(id="queue-panel")
+        yield QueuePanel(id="queue-panel", classes="hidden")
+        yield ImportOverlay(id="import-overlay", classes="hidden")
         with Horizontal(id="footer-bar"):
             yield Button("QUEUE [Ctrl+Q]", id="btn-toggle-queue")
+            yield Button("IMPORT [Ctrl+I]", id="btn-toggle-import")
             yield Footer()
 
     def action_toggle_queue(self) -> None:
@@ -573,12 +930,40 @@ class BeatManagerApp(App):
     def handle_toggle_queue(self) -> None:
         self.action_toggle_queue()
 
+    def action_toggle_import(self) -> None:
+        self.show_import = not self.show_import
+
+    def watch_show_import(self, show: bool) -> None:
+        self.query_one("#import-overlay").set_class(not show, "hidden")
+
+    @on(Button.Pressed, "#btn-toggle-import")
+    def handle_toggle_import(self) -> None:
+        self.action_toggle_import()
+
     def on_mount(self) -> None:
+        self.library_engine = LibraryManagerEngine()
+        self.audio_engine = AudioEngine()
         self.dispatcher = TaskDispatcher(BASE_DIR)
         self.notify("BeatManager Pro Online", title="System")
 
+    def on_error(self, error: Exception) -> None:
+        import traceback
+        with open("crash.log", "a") as f:
+            f.write(f"\n[{datetime.now().isoformat()}] GLOBAL CRASH: {str(error)}\n{traceback.format_exc()}\n")
+        super().on_error(error)
+
+    def on_unmount(self) -> None:
+        if hasattr(self, "audio_engine"):
+            self.audio_engine.stop_preview()
+
+    def action_refresh_library(self) -> None:
+        try:
+            self.query_one(LibraryTab).refresh_library()
+        except: pass
+
     def action_refresh_all(self) -> None:
         self.notify("Refreshing all data...", title="System")
+        self.action_refresh_library()
 
     @work(exclusive=True, thread=True)
     @on(Button.Pressed, "#btn-render-start")
@@ -596,9 +981,9 @@ class BeatManagerApp(App):
         self.notify(f"RENDER STARTED: {os.path.basename(output)}")
         result = self.dispatcher.run_render(config)
         if result.success:
-            self.notify(f"RENDER FINISHED: {os.path.basename(output)}", variant="success")
+            self.notify(f"RENDER FINISHED: {os.path.basename(output)}", severity="information")
         else:
-            self.notify(f"RENDER FAILED: {result.error_message}", variant="error")
+            self.notify(f"RENDER FAILED: {result.error_message}", severity="error")
 
     @work(exclusive=True, thread=True)
     @on(Button.Pressed, "#btn-yt-upload")
@@ -619,9 +1004,9 @@ class BeatManagerApp(App):
         self.notify(f"UPLOAD STARTED: {title}")
         result = self.dispatcher.run_upload(config)
         if result.success:
-            self.notify(f"UPLOAD FINISHED: {title} (ID: {result.output_path})", variant="success")
+            self.notify(f"UPLOAD FINISHED: {title} (ID: {result.output_path})", severity="information")
         else:
-            self.notify(f"UPLOAD FAILED: {result.error_message}", variant="error")
+            self.notify(f"UPLOAD FAILED: {result.error_message}", severity="error")
 
 if __name__ == "__main__":
     app = BeatManagerApp()

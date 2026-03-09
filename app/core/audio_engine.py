@@ -1,5 +1,6 @@
 import os
-import glob
+import subprocess
+import threading
 from tinydb import Query
 from app.core.state_manager import StateManager
 import mutagen
@@ -9,10 +10,42 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))
 STATE_JSON = os.path.join(project_root, "state.json")
 
+class AudioPlayer:
+    """Simple audio player using ffplay in a separate thread."""
+    def __init__(self):
+        self._process = None
+        self._lock = threading.Lock()
+
+    def play(self, file_path: str):
+        self.stop()
+        with self._lock:
+            # -nodisp: no video window, -autoexit: exit when finished, -loglevel quiet: no output
+            cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", file_path]
+            self._process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def stop(self):
+        with self._lock:
+            if self._process:
+                try:
+                    self._process.terminate()
+                    self._process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                except Exception:
+                    pass
+                self._process = None
+
 class AudioEngine:
     def __init__(self):
         self.state_manager = StateManager(STATE_JSON)
         self.audio_assets_table = self.state_manager.db.table('audio_assets')
+        self.player = AudioPlayer()
+
+    def play_preview(self, path: str):
+        self.player.play(path)
+
+    def stop_preview(self):
+        self.player.stop()
 
     def scan_folder(self, path: str):
         if not os.path.exists(path):
@@ -59,8 +92,3 @@ class AudioEngine:
 if __name__ == "__main__":
     # Example usage (for testing)
     engine = AudioEngine()
-    # Replace with an actual path for testing
-    # engine.scan_folder("/home/davesuonabene/.openclaw/workspace/workspace/samples_2026-02-27/")
-    # print("\nAll scanned audio assets:")
-    # for asset in engine.audio_assets_table.all():
-    #     print(asset)

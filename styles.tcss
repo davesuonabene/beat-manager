@@ -185,51 +185,142 @@ Button.-variant-warning {
 }
 
 #library-header {
-    height: 3;
-    align: center middle;
+    height: 4;
     background: #190061;
-    border-bottom: tall #240090;
+    border-bottom: solid #240090;
+    padding: 0 1;
+    align: left middle;
     margin-bottom: 1;
 }
 
-#library-header .section-label {
+#lib-title {
+    color: #00f9ff;
+    text-style: bold;
+    margin-right: 1;
+    width: auto;
+}
+
+LibraryFilterBar {
+    width: 1fr;
+    height: 3;
+}
+
+#lib-filter-search {
+    width: 1fr;
+    height: 3;
     margin: 0;
-}
-
-#library-content {
-    height: 1fr;
-}
-
-#library-main-content {
-    height: 1fr;
-    padding: 1 2;
+    border: none;
     background: #0d0221;
 }
 
-#library-table {
-    height: 1fr;
-    border: solid #240090;
-}
-
-#btn-open-import {
-    width: 25;
-    margin-right: 2;
-}
-
-#library-header {
+#lib-filter-type {
+    width: 18;
     height: 3;
+    margin: 0 1;
+    border: none;
+    background: #0d0221;
+}
+
+#lib-actions {
+    width: auto;
+    height: 3;
+    align: right middle;
+}
+
+#lib-actions Button {
+    width: 4;
+    height: 3;
+    min-width: 4;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+#lib-actions Button:hover {
+    background: #240090;
+    color: #00f9ff;
+}
+
+#btn-library-delete:hover {
+    background: #880000;
+}
+
+
+#library-table-container {
+    height: 1fr;
+    position: relative;
+}
+
+#inline-editor {
+    position: absolute;
+    height: 1;
+    border: none;
+    padding: 0 1;
+    margin: 0;
+    background: #00f9ff;
+    color: #190061;
+}
+
+#inline-editor.hidden {
+    display: none;
+}
+
+ModalScreen {
+    background: #000000 50%;
     align: center middle;
-    background: #190061;
-    border-bottom: tall #240090;
+}
+
+#import-overlay {
+    height: 80%;
+    width: 100%;
+    dock: bottom;
+    background: #080212;
+    border-top: solid #00f9ff;
+    padding: 1 2;
+}
+
+#import-overlay.hidden {
+    display: none;
+}
+
+#import-controls-row {
+    height: 7;
     margin-bottom: 1;
 }
 
-#import-modal-container {
-    width: 80%;
-    height: 80%;
-    background: #0d0221;
-    border: tall #00f9ff;
-    padding: 1 2;
+#import-path-col {
+    width: 1fr;
+    height: 100%;
+}
+
+#import-path-row {
+    height: 3;
+}
+
+#import-path-row Input {
+    width: 1fr;
+    height: 3;
+}
+
+#import-path-row Button {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    margin-left: 1;
+}
+
+#import-toggles-col {
+    width: 45;
+    height: 100%;
+    padding-left: 2;
+    align: left middle;
+}
+
+#import-toggles-col Checkbox {
+    height: auto;
+    margin-bottom: 1;
+    min-width: 100%;
 }
 
 #import-modal-buttons {
@@ -239,37 +330,14 @@ Button.-variant-warning {
 }
 
 #import-modal-buttons Button {
-    width: 25;
-    margin: 0 1;
-}
-
-.btn-icon {
-    width: 5;
-    min-width: 5;
-    height: 3;
-    background: #240090;
-    color: #00f9ff;
-    border: none;
+    width: auto;
     margin: 0 1;
 }
 
 #import-results-table {
     height: 1fr;
-    margin: 1 0;
+    margin: 0;
     border: solid #240090;
-}
-
-#import-path-row {
-    height: auto;
-}
-
-#import-path-row Input {
-    width: 1fr;
-}
-
-#import-path-row Button {
-    width: 8;
-    margin-left: 1;
 }
 
 /* Path Picker Modal */
