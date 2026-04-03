@@ -1072,48 +1072,51 @@ class LibraryTab(Container):
 class YoutubeTab(Container):
     def compose(self) -> ComposeResult:
         with Horizontal(id="yt-row"):
-            with VerticalScroll(id="yt-left", classes="panel_container"):
+            with Vertical(id="yt-left"):
                 yield Label("UPLOAD HISTORY", classes="panel_title")
                 yield DataTable(id="yt-uploads-table", cursor_type="row")
-                with Horizontal(classes="multi-input-row"):
-                    yield Button("REFRESH", id="btn-yt-refresh", variant="default")
+                with Horizontal(id="yt-left-footer"):
+                    yield Button("REFRESH", id="btn-yt-refresh")
                     yield Button("DELETE", id="btn-yt-delete", variant="error")
-            
-            with VerticalScroll(id="yt-right", classes="panel_container"):
-                yield Label("YOUTUBE PUBLISHING", classes="panel_title")
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Video File Path")
-                    yield Input(placeholder="/path/to/video.mp4", id="yt-video", value=os.path.join(BASE_DIR, "output.mp4"))
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Thumbnail Path (Optional)")
-                    yield Input(placeholder="/path/to/thumb.jpg", id="yt-thumb")
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Video Title")
-                    yield Input(placeholder="Enter title...", id="yt-title")
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Description")
-                    yield TextArea(id="yt-desc", classes="small-text-area")
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Tags (Comma Separated)")
-                    yield Input(placeholder="music, beat, hiphop...", id="yt-tags")
-                
-                with Horizontal(classes="multi-input-row"):
-                    yield Select([("Music", "10"), ("Entertainment", "24")], id="yt-cat", value="10")
-                    yield Select([("Private", "private"), ("Unlisted", "unlisted"), ("Public", "public")], id="yt-privacy", value="private")
-                
-                with Vertical(classes="form-group"):
-                    yield Label("Schedule (Optional ISO 8601)")
-                    yield Input(placeholder="2024-01-01T12:00:00Z", id="yt-schedule")
-                
-                with Horizontal(classes="multi-input-row"):
-                    yield Button("SAVE DRAFT", id="btn-yt-save-draft", variant="default")
-                    yield Button("UPLOAD NOW", id="btn-yt-upload", variant="primary")
 
+            with VerticalScroll(id="yt-right"):
+                yield Label("YOUTUBE PUBLISHING", classes="panel_title")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Video", classes="menu-label")
+                    yield Input(placeholder="/path/to/video.mp4", id="yt-video", value=os.path.join(BASE_DIR, "output.mp4"))
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Thumb", classes="menu-label")
+                    yield Input(placeholder="/path/to/thumb.jpg", id="yt-thumb")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Title", classes="menu-label")
+                    yield Input(placeholder="Enter title...", id="yt-title")
+
+                with Vertical(id="yt-desc-container"):
+                    yield Label("Description", classes="menu-label")
+                    yield TextArea(id="yt-desc")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Tags", classes="menu-label")
+                    yield Input(placeholder="music, beat, hiphop...", id="yt-tags")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Category", classes="menu-label")
+                    yield Select([("Music", "10"), ("Entertainment", "24")], id="yt-cat", value="10")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Privacy", classes="menu-label")
+                    yield Select([("Private", "private"), ("Unlisted", "unlisted"), ("Public", "public")], id="yt-privacy", value="private")
+
+                with Horizontal(classes="yt-form-row"):
+                    yield Label("Schedule", classes="menu-label")
+                    yield Input(placeholder="2024-01-01T12:00:00Z", id="yt-schedule")
+
+                with Horizontal(id="yt-right-footer"):
+                    yield Button("SAVE DRAFT", id="btn-yt-save-draft")
+                    yield Button("UPLOAD NOW", id="btn-yt-upload", variant="primary")
     def on_mount(self) -> None:
         table = self.query_one("#yt-uploads-table", DataTable)
         table.add_columns("ID", "TITLE", "STATUS", "DATE")

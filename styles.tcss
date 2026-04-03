@@ -62,11 +62,11 @@ Underline > .underline--bar {
 
 TabbedContent {
     height: 1fr;
-    margin: 0 1;
+    margin: 0;
 }
 
 TabPane {
-    padding: 1 2;
+    padding: 0;
     background: transparent;
     height: 1fr;
 }
@@ -164,18 +164,18 @@ Button.-variant-error {
 #library-header {
     height: auto;
     background: $panel-bg;
-    border: tall $border;
-    margin: 1 1 0 1;
-    padding: 1;
+    border-bottom: tall $border;
+    margin: 0;
+    padding: 0 1;
 }
 
 #lib-header-row-1, #lib-header-row-2 {
-    height: auto;
+    height: 1;
     align: left middle;
 }
 
 #lib-header-row-1 {
-    margin-bottom: 1;
+    margin-top: 0;
 }
 
 .menu-label {
@@ -183,30 +183,36 @@ Button.-variant-error {
     content-align: left middle;
     color: #bbc8e8;
     text-style: bold;
-    height: 3;
+    height: 1;
     margin-right: 1;
 }
 
 #lib-filter-search {
     width: 1fr;
-    height: 3;
+    height: 1;
     margin-right: 1;
+    border: none;
+    background: $bg 50%;
 }
 
 #lib-filter-type {
-    width: 24;
-    height: 3;
+    width: 20;
+    height: 1;
+    border: none;
+    background: $bg 50%;
 }
 
 #lib-file-dropdown, #lib-edit-dropdown {
     width: 1fr;
-    height: 3;
+    height: 1;
     margin-right: 1;
+    border: none;
+    background: $bg 50%;
 }
 
 #library-main-content {
-    margin: 1;
-    border: tall $border;
+    margin: 0;
+    border: none;
     background: $panel-bg;
 }
 
@@ -223,7 +229,7 @@ WaveformDisplay {
 }
 
 #library-player {
-    height: 5;
+    height: 3;
     background: $panel-bg;
     border-top: tall $border;
     padding: 0 2;
@@ -238,10 +244,11 @@ WaveformDisplay {
 
 #btn-player-play, #btn-player-stop {
     width: 6;
-    height: 3;
+    height: 1;
     margin: 0 1;
     min-width: 6;
     padding: 0;
+    border: none;
 }
 
 #btn-player-play:hover { color: $success; }
@@ -265,7 +272,8 @@ WaveformDisplay {
     background: $border;
     color: $highlight;
     margin: 0;
-    padding: 1;
+    padding: 0 1;
+    height: 1;
 }
 
 #inspector-tabs {
@@ -276,37 +284,52 @@ WaveformDisplay {
     height: 1fr;
     margin: 0;
     border: none;
-    padding: 1;
+    padding: 0;
+}
+
+#tab-notes {
+    padding: 0;
 }
 
 #tab-metadata {
-    padding: 1;
+    padding: 0;
 }
 
 #meta-grid {
     grid-size: 2;
-    grid-columns: 10 1fr;
+    grid-columns: 8 1fr;
     grid-rows: auto;
     height: auto;
     margin: 0;
+    padding: 0 1;
 }
 
 #meta-grid Label {
-    height: 3;
+    height: 1;
     content-align: left middle;
     color: $highlight;
     text-style: bold;
-    padding-left: 1;
+    margin: 0;
 }
 
 #meta-grid Input {
-    margin-bottom: 1;
-    height: 3;
+    margin: 0;
+    height: 1;
+    border: none;
+    background: $bg 50%;
 }
 
 #btn-inspector-save {
-    margin: 1;
-    height: 3;
+    margin: 0;
+    height: 1;
+    border: none;
+    background: $success 20%;
+    color: $success;
+}
+
+#btn-inspector-save:hover {
+    background: $success 40%;
+    text-style: bold;
 }
 
 #library-table {
@@ -484,31 +507,58 @@ Checkbox:focus {
 
 /* Youtube Tab Layout */
 #yt-row {
-    padding: 1;
+    padding: 0;
 }
 
 #yt-left {
-    width: 40%;
-    margin: 1;
+    width: 1fr;
+    border-right: tall $border;
 }
 
 #yt-right {
-    width: 60%;
-    margin: 1;
+    width: 1.5fr;
 }
 
-.multi-input-row {
-    height: auto;
-    margin-top: 1;
+#yt-left-footer, #yt-right-footer {
+    height: 1;
+    margin: 0;
+    padding: 0;
 }
 
-.multi-input-row Button {
+#yt-left-footer Button, #yt-right-footer Button {
     width: 1fr;
-    margin: 0 1;
+    height: 1;
+    margin: 0;
+    border: none;
 }
 
-.small-text-area {
+.yt-form-row {
+    height: 1;
+    align: left middle;
+    margin-bottom: 0;
+}
+
+.yt-form-row Input, .yt-form-row Select {
+    border: none;
+    background: $bg 50%;
+    height: 1;
+}
+
+#yt-desc-container {
     height: 8;
+    margin: 0;
+    padding: 0;
+}
+
+#yt-desc-container TextArea {
+    height: 7;
+    border: none;
+    background: $bg 50%;
+    margin: 0;
+}
+
+#yt-desc-container Label {
+    height: 1;
 }
 
 /* Status Colors */
