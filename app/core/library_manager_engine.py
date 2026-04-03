@@ -1,6 +1,7 @@
 import os
 import shutil
 import uuid
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from tinydb import Query
 import mutagen
@@ -26,7 +27,8 @@ class LibraryManagerEngine:
         self.audio_dir = os.path.join(self.library_root, "audio")
         self.beats_dir = os.path.join(self.library_root, "beats")
         self.image_dir = os.path.join(self.library_root, "images")
-        for d in [self.audio_dir, self.beats_dir, self.image_dir]:
+        self.trash_dir = os.path.join(self.library_root, "trash")
+        for d in [self.audio_dir, self.beats_dir, self.image_dir, self.trash_dir]:
             os.makedirs(d, exist_ok=True)
 
     def _sanitize_filename(self, name: str) -> str:
@@ -149,14 +151,21 @@ class LibraryManagerEngine:
         beat_path = os.path.join(self.beats_dir, asset_id)
         os.makedirs(beat_path, exist_ok=True)
 
-        # Move files
+        # Create nested structure
+        raw_dir = "RAW"
+        release_dir = "RELEASE"
+        os.makedirs(os.path.join(beat_path, raw_dir), exist_ok=True)
+        os.makedirs(os.path.join(beat_path, release_dir), exist_ok=True)
+
+        # Move audio files into RAW subdirectory
         old_audio_path = audio_doc['path']
         audio_ext = os.path.splitext(old_audio_path)[1]
         safe_beat_name = self._sanitize_filename(name)
         new_audio_filename = f"raw-{safe_beat_name}{audio_ext}"
-        new_audio_path = os.path.join(beat_path, new_audio_filename)
+        new_audio_path = os.path.join(beat_path, raw_dir, new_audio_filename)
         shutil.move(old_audio_path, new_audio_path)
 
+        # Move notes into the beat ROOT directory
         new_notes_filename = "notes.txt"
         if audio_doc.get('notes_file'):
             old_notes_path = os.path.join(os.path.dirname(old_audio_path), audio_doc['notes_file'])
@@ -166,15 +175,26 @@ class LibraryManagerEngine:
         if not os.path.exists(os.path.join(beat_path, new_notes_filename)):
             open(os.path.join(beat_path, new_notes_filename), 'w').close()
 
+        # Create an empty metadata.json alongside the notes file
+        metadata_path = os.path.join(beat_path, "metadata.json")
+        if not os.path.exists(metadata_path):
+            import json
+            with open(metadata_path, 'w') as f:
+                json.dump({}, f)
+
         beat = BeatAsset(
             id=asset_id,
             name=name,
             path=beat_path,
-            versions={"main": new_audio_filename},
+            # Versions now includes relative path to file from beat root
+            versions={"main": os.path.join(raw_dir, new_audio_filename)},
             notes_file=new_notes_filename,
             duration=audio_doc.get('duration'),
             bpm=audio_doc.get('bpm'),
-            key=audio_doc.get('key')
+            key=audio_doc.get('key'),
+            raw_dir=raw_dir,
+            release_dir=release_dir,
+            metadata=audio_doc.get('metadata', {})
         )
 
         # Remove old raw audio entry and insert new beat entry
@@ -196,26 +216,53 @@ class LibraryManagerEngine:
         if not os.path.exists(beat_path):
             raise FileNotFoundError(f"Beat folder not found: {beat_path}")
 
-        # 1. Identify main audio file
+        # 1. Handle RELEASE folder and Trash (Always create a trash entry)
+        release_dir_name = beat_doc.get('release_dir', 'RELEASE')
+        release_path = os.path.join(beat_path, release_dir_name)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = self._sanitize_filename(beat_doc['name'])
+        unique_trash_name = f"{safe_name}_{timestamp}"
+        dest_trash_path = os.path.join(self.trash_dir, unique_trash_name)
+        os.makedirs(dest_trash_path, exist_ok=True)
+        trash_info = dest_trash_path
+
+        if os.path.exists(release_path):
+            # Move entire RELEASE folder into the unique trash folder
+            shutil.move(release_path, os.path.join(dest_trash_path, release_dir_name))
+
+        # 2. Identify main audio file
         versions = beat_doc.get('versions', {})
         main_filename = versions.get('main')
         
         # Fallback if 'main' is missing or just generic detection
         if not main_filename or not os.path.exists(os.path.join(beat_path, main_filename)):
             audio_exts = ('.wav', '.mp3', '.flac', '.aiff')
-            files = [f for f in os.listdir(beat_path) if f.lower().endswith(audio_exts)]
-            if not files:
-                raise FileNotFoundError("No audio file found in beat folder.")
-            main_filename = files[0]
+            # Check root and RAW subdirectory
+            raw_dir = beat_doc.get('raw_dir', 'RAW')
+            search_paths = [beat_path, os.path.join(beat_path, raw_dir)]
+            
+            found_file = None
+            for p in search_paths:
+                if os.path.exists(p):
+                    files = [f for f in os.listdir(p) if f.lower().endswith(audio_exts)]
+                    if files:
+                        found_file = os.path.join(p, files[0])
+                        break
+            
+            if not found_file:
+                raise FileNotFoundError("No audio file found in beat folder or RAW subdirectory.")
+            main_audio_path = found_file
+            main_filename = os.path.basename(found_file)
+        else:
+            main_audio_path = os.path.join(beat_path, main_filename)
 
-        main_audio_path = os.path.join(beat_path, main_filename)
-        
-        # 2. Extract notes if they exist
+        # 3. Identify notes if they exist
         notes_filename = beat_doc.get('notes_file', 'notes.txt')
         notes_path = os.path.join(beat_path, notes_filename)
         has_notes = os.path.exists(notes_path)
 
-        # 3. Move back to central audio_dir
+        # 4. Prepare destinations in central audio_dir
         safe_name = self._sanitize_filename(beat_doc['name'])
         ext = os.path.splitext(main_filename)[1]
         
@@ -231,24 +278,25 @@ class LibraryManagerEngine:
             dest_audio_filename = f"{safe_name}{ext}"
             dest_audio_path = os.path.join(self.audio_dir, dest_audio_filename)
 
+        # 5. Move audio and renamed notes
         shutil.move(main_audio_path, dest_audio_path)
         
-        dest_notes_filename = None
+        dest_notes_filename = f"{safe_name}.txt"
         if has_notes:
-            dest_notes_filename = f"{safe_name}.txt"
             shutil.move(notes_path, os.path.join(self.audio_dir, dest_notes_filename))
         else:
-             # Ensure a notes file exists if we want consistency with import_raw_audio
-             dest_notes_filename = f"{safe_name}.txt"
+             # Ensure a notes file exists
              open(os.path.join(self.audio_dir, dest_notes_filename), 'w').close()
 
-        # 4. Cleanup beat folder
+        # 6. Cleanup remaining beat folder structure
         try:
             shutil.rmtree(beat_path)
         except Exception:
             pass
 
-        # 5. Update DB (remove beat, insert raw audio)
+        # 7. Update DB (remove beat, insert raw audio)
+        metadata = beat_doc.get('metadata', {})
+        
         raw_asset = AudioAsset(
             name=beat_doc['name'],
             path=dest_audio_path,
@@ -257,11 +305,22 @@ class LibraryManagerEngine:
             duration=beat_doc.get('duration', 0),
             bpm=beat_doc.get('bpm'),
             key=beat_doc.get('key'),
-            asset_type=AssetType.RAW
+            asset_type=AssetType.RAW,
+            metadata=metadata
         )
 
         self.assets_table.remove(Query().id == beat_id)
         self.assets_table.insert(raw_asset.dict())
+        
+        # Store a link to the ID of the raw audio file to allow for restore
+        if trash_info:
+            import json
+            try:
+                meta_path = os.path.join(trash_info, "metadata.json")
+                with open(meta_path, "w") as f:
+                    json.dump({"raw_audio_id": raw_asset.id, "beat_name": beat_doc['name']}, f)
+            except Exception:
+                pass
         
         return raw_asset
 
@@ -343,6 +402,28 @@ class LibraryManagerEngine:
                             notes_path = os.path.join(self.audio_dir, notes_file)
                             if os.path.exists(notes_path):
                                 os.remove(notes_path)
+                    elif asset_type == AssetType.BEAT or asset_type == 'beat':
+                        # Move to trash instead of just deleting
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        safe_name = self._sanitize_filename(asset.get('name', 'deleted_beat'))
+                        unique_trash_name = f"{safe_name}_{timestamp}_deleted"
+                        dest_trash_path = os.path.join(self.trash_dir, unique_trash_name)
+                        os.makedirs(dest_trash_path, exist_ok=True)
+                        
+                        release_dir_name = asset.get('release_dir', 'RELEASE')
+                        release_path = os.path.join(path, release_dir_name)
+                        if os.path.exists(release_path):
+                            shutil.move(release_path, os.path.join(dest_trash_path, release_dir_name))
+                            
+                        import json
+                        try:
+                            meta_path = os.path.join(dest_trash_path, "metadata.json")
+                            with open(meta_path, "w") as f:
+                                json.dump({"beat_name": asset.get('name'), "deleted": True}, f)
+                        except Exception:
+                            pass
+                            
+                        shutil.rmtree(path)
                     else:
                         if os.path.isdir(path):
                             shutil.rmtree(path)
@@ -367,6 +448,97 @@ class LibraryManagerEngine:
                 self.assets_table.remove(doc_ids=[asset.doc_id])
                 removed_count += 1
         return removed_count
+
+    def empty_trash(self) -> int:
+        """Permanently deletes everything in the trash directory and cleans up DB metadata."""
+        deleted_count = 0
+        if not os.path.exists(self.trash_dir):
+            return 0
+            
+        for item in os.listdir(self.trash_dir):
+            item_path = os.path.join(self.trash_dir, item)
+            try:
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.unlink(item_path)
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                deleted_count += 1
+            except Exception:
+                pass
+        
+        # Cleanup metadata references in DB
+        assets = self.assets_table.all()
+        for asset in assets:
+            metadata = asset.get('metadata', {})
+            if 'archived_release_path' in metadata:
+                # Check if it was in our trash_dir
+                path_str = str(metadata['archived_release_path'])
+                if path_str.startswith(self.trash_dir) or not os.path.exists(path_str):
+                    del metadata['archived_release_path']
+                    self.assets_table.update({'metadata': metadata}, doc_ids=[asset.doc_id])
+                    
+        return deleted_count
+
+    def restore_from_trash(self, trash_id_or_path: str, target_beat_id: str) -> bool:
+        """Moves files from a trash folder back into a beat's RELEASE folder."""
+        # 1. Resolve trash path
+        trash_path = trash_id_or_path
+        if not os.path.isabs(trash_path):
+            trash_path = os.path.join(self.trash_dir, trash_id_or_path)
+            
+        if not os.path.exists(trash_path):
+            raise FileNotFoundError(f"Trash source not found: {trash_path}")
+            
+        # 2. Get target beat
+        beat = self.assets_table.get(Query().id == target_beat_id)
+        if not beat or beat.get('asset_type') != AssetType.BEAT:
+            raise ValueError(f"Target {target_beat_id} is not a valid BEAT.")
+            
+        beat_path = beat['path']
+        release_dir_name = beat.get('release_dir', 'RELEASE')
+        target_release_path = os.path.join(beat_path, release_dir_name)
+        os.makedirs(target_release_path, exist_ok=True)
+        
+        # 3. Move files
+        # If the trash folder contains a 'RELEASE' subfolder, move its contents.
+        # Otherwise move everything from the trash folder.
+        source_dir = trash_path
+        potential_release = os.path.join(trash_path, release_dir_name)
+        if os.path.exists(potential_release) and os.path.isdir(potential_release):
+            source_dir = potential_release
+            
+        moved_any = False
+        for item in os.listdir(source_dir):
+            s = os.path.join(source_dir, item)
+            d = os.path.join(target_release_path, item)
+            if os.path.exists(d):
+                if os.path.isdir(d): shutil.rmtree(d)
+                else: os.remove(d)
+            shutil.move(s, d)
+            moved_any = True
+            
+        # 4. Cleanup trash folder
+        try:
+            if source_dir != trash_path and not os.listdir(source_dir):
+                shutil.rmtree(source_dir)
+            
+            # Remove metadata.json if it exists so we can clean the folder
+            meta_path = os.path.join(trash_path, "metadata.json")
+            if os.path.exists(meta_path):
+                os.remove(meta_path)
+                
+            if not os.listdir(trash_path):
+                shutil.rmtree(trash_path)
+        except Exception:
+            pass
+            
+        # 5. Update metadata if it pointed to this trash path
+        metadata = beat.get('metadata', {})
+        if metadata.get('archived_release_path') == trash_path:
+            del metadata['archived_release_path']
+            self.assets_table.update({'metadata': metadata}, Query().id == target_beat_id)
+            
+        return moved_any
 
     def scan_for_import(self, search_path: str) -> List[Dict[str, Any]]:
         """Scan a path for potential audio and image assets."""
@@ -464,4 +636,55 @@ class LibraryManagerEngine:
             
         shutil.move(source_path, dest_path)
         self.assets_table.update({"path": dest_path}, Query().id == beat_id)
+        return True
+
+    def generate_mp3_for_beat(self, beat_id: str) -> bool:
+        """Converts the main release WAV to MP3 and updates DB."""
+        from app.core.processing_engine import ProcessingEngine
+        beat = self.assets_table.get(Query().id == beat_id)
+        if not beat or beat.get('asset_type') != AssetType.BEAT:
+            return False
+            
+        beat_path = beat['path']
+        release_dir_name = beat.get('release_dir', 'RELEASE')
+        release_path = os.path.join(beat_path, release_dir_name)
+        os.makedirs(release_path, exist_ok=True)
+        
+        main_filename = beat.get('versions', {}).get('main')
+        if not main_filename:
+            return False
+            
+        source_path = os.path.join(beat_path, main_filename)
+        if not os.path.exists(source_path):
+            return False
+            
+        source_basename = os.path.basename(main_filename)
+        mp3_filename = os.path.splitext(source_basename)[0] + ".mp3"
+        target_path = os.path.join(release_path, mp3_filename)
+        
+        success = ProcessingEngine.convert_wav_to_mp3(source_path, target_path)
+        if success:
+            self.assets_table.update({"has_mp3": True}, Query().id == beat_id)
+        return success
+
+    def add_master_version(self, beat_id: str, master_file_path: str) -> bool:
+        """Copies a master version to the RELEASE folder and updates DB."""
+        if not os.path.exists(master_file_path):
+            return False
+            
+        beat = self.assets_table.get(Query().id == beat_id)
+        if not beat or beat.get('asset_type') != AssetType.BEAT:
+            return False
+            
+        beat_path = beat['path']
+        release_dir_name = beat.get('release_dir', 'RELEASE')
+        release_path = os.path.join(beat_path, release_dir_name)
+        os.makedirs(release_path, exist_ok=True)
+        
+        target_filename = "master_" + os.path.basename(master_file_path)
+        target_path = os.path.join(release_path, target_filename)
+        
+        shutil.copy2(master_file_path, target_path)
+        
+        self.assets_table.update({"has_master": True}, Query().id == beat_id)
         return True

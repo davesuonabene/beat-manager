@@ -30,6 +30,7 @@ class LibraryAsset(BaseModel):
     path: str = Field(..., description="Absolute path to the asset folder or file")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the asset")
+    in_trash: bool = Field(default=False, description="Whether the asset is currently in the trash")
 
 class AudioAsset(LibraryAsset):
     data_type: AssetDataType = AssetDataType.AUDIO
@@ -54,7 +55,16 @@ class BeatAsset(LibraryAsset):
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration: Optional[float] = None
-    cover_image_id: Optional[str] = Field(None, description="ID of the ImageAsset used as cover")
+    cover_image_id: Optional[str] = Field(None, description="ID of the ImageAsset used as cover (Deprecated: Use linked_assets)")
+    
+    # New tracking fields
+    raw_dir: Optional[str] = Field(None, description="Relative path to raw source directory within beat root")
+    release_dir: Optional[str] = Field(None, description="Relative path to release/export directory within beat root")
+    trash_path: Optional[str] = Field(None, description="Path to trash location if moved")
+    linked_assets: Dict[str, str] = Field(default_factory=dict, description="Map of roles to asset IDs (e.g. {'project': 'id123', 'stems': 'id456'})")
+    has_mp3: bool = Field(default=False, description="Whether the beat has an MP3 version")
+    has_master: bool = Field(default=False, description="Whether the beat has a mastered version")
+    stems_path: Optional[str] = Field(None, description="Path to the stems if available")
 
 class RenderConfig(BaseModel):
     audio_path: str = Field(..., description="Path to the audio file")

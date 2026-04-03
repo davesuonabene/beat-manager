@@ -32,14 +32,56 @@ from app.services.dispatcher import TaskDispatcher
 
 # --- Custom Widgets ---
 
-class Island(Container):
-    """A professional panel container."""
-    pass
+class ConfirmModal(ModalScreen):
+    """A simple confirmation modal."""
+    def __init__(self, message: str, **kwargs):
+        super().__init__(**kwargs)
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-container"):
+            yield Label(self.message, id="confirm-message")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("CANCEL", id="btn-confirm-cancel", variant="error")
+                yield Button("CONFIRM", id="btn-confirm-ok", variant="success")
+
+    @on(Button.Pressed, "#btn-confirm-cancel")
+    def cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#btn-confirm-ok")
+    def confirm(self) -> None:
+        self.dismiss(True)
+
+class TrashPicker(ModalScreen):
+    """A modal for picking a trash folder to restore."""
+    def __init__(self, trash_items: List[str], **kwargs):
+        super().__init__(**kwargs)
+        self.trash_items = trash_items
+
+    def compose(self) -> ComposeResult:
+        with Container(id="picker-container"):
+            yield Label("SELECT TRASH BACKUP", classes="panel_title")
+            with ScrollableContainer(id="trash-list-container"):
+                yield ListView(*[ListItem(Label(item), id=f"trash_{i}") for i, item in enumerate(self.trash_items)], id="trash-list")
+            with Horizontal(id="picker-buttons"):
+                yield Button("CANCEL", id="btn-picker-cancel", variant="error")
+
+    @on(ListView.Selected, "#trash-list")
+    def handle_selected(self, event: ListView.Selected) -> None:
+        idx = int(event.item.id.split("_")[1])
+        self.dismiss(self.trash_items[idx])
+
+    @on(Button.Pressed, "#btn-picker-cancel")
+    def cancel(self) -> None:
+        self.dismiss(None)
 
 class ImportOverlay(Vertical):
     """A professional overlay for scanning and importing assets."""
     BINDINGS = [
         Binding("space", "toggle_selection", "Select"),
+        Binding("ctrl+a", "select_all", "Select All"),
+        Binding("ctrl+d", "deselect_all", "Deselect"),
     ]
 
     def __init__(self, **kwargs):
@@ -72,16 +114,36 @@ class ImportOverlay(Vertical):
         table = self.query_one("#import-results-table", DataTable)
         if table.cursor_row is not None:
             row_keys = list(table.rows.keys())
+            if table.cursor_row >= len(row_keys): return
             row_key = row_keys[table.cursor_row]
+            # Key is the path for import-results-table
+            asset_path = str(row_key)
             if not hasattr(table, "selected_rows"): table.selected_rows = set()
 
-            if row_key in table.selected_rows:
-                table.selected_rows.remove(row_key)
+            if asset_path in table.selected_rows:
+                table.selected_rows.remove(asset_path)
                 table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
             else:
-                table.selected_rows.add(row_key)
+                table.selected_rows.add(asset_path)
                 table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
             table.action_cursor_down()
+
+    def action_select_all(self) -> None:
+        table = self.query_one("#import-results-table", DataTable)
+        if not hasattr(table, "selected_rows"): table.selected_rows = set()
+        for row_key in table.rows: 
+            asset_path = str(row_key)
+            table.selected_rows.add(asset_path)
+            table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
+        self.app.notify("All items selected.")
+
+    def action_deselect_all(self) -> None:
+        table = self.query_one("#import-results-table", DataTable)
+        if hasattr(table, "selected_rows"):
+            table.selected_rows.clear()
+            for row_key in table.rows:
+                table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
+        self.app.notify("All items deselected.")
 
     @on(Button.Pressed, "#btn-import-preview")
     def handle_preview(self) -> None:
@@ -148,11 +210,16 @@ class ImportOverlay(Vertical):
         try:
             table = self.query_one("#import-results-table", DataTable)
             selected_indices = []
-            selected_rows = getattr(table, "selected_rows", set())
-            if selected_rows:
+            selected_paths = getattr(table, "selected_rows", set())
+            
+            if selected_paths:
+                # We need indices to look up in self.found_assets
                 row_keys = list(table.rows.keys())
-                for key in selected_rows:
+                for path in selected_paths:
                     try:
+                        # RowKey is based on path, so this should work
+                        from textual.widgets._data_table import RowKey
+                        key = RowKey(path)
                         idx = row_keys.index(key)
                         selected_indices.append(idx)
                     except ValueError: pass
@@ -229,7 +296,7 @@ class PathPicker(ModalScreen):
 
     def compose(self) -> ComposeResult:
         with Container(id="picker-container"):
-            yield Label("FILE SYSTEM BROWSER", classes="section-label")
+            yield Label("FILE SYSTEM BROWSER", classes="panel_title")
             yield DirectoryTree(self.initial_path, id="picker-tree")
             with Horizontal(id="picker-buttons"):
                 yield Button("CANCEL", id="btn-picker-cancel", variant="error")
@@ -255,50 +322,55 @@ class PathPicker(ModalScreen):
         else:
             self.dismiss(str(tree.path))
 
-class SeekableBar(Static):
-    """A custom progress bar using theme-aware styling."""
+class WaveformDisplay(Static):
+    """A responsive waveform display showing progress."""
     progress = reactive(0.0)
     total = reactive(1.0)
+    
+    class SeekRequested(Message):
+        def __init__(self, percentage: float) -> None:
+            self.percentage = percentage
+            super().__init__()
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.base_data = [abs(math.sin(i / 5.0)) * 10 + random.random() * 5 for i in range(100)]
+        
     def render(self) -> RenderResult:
-        from rich.progress_bar import ProgressBar as RichProgressBar
-        return RichProgressBar(
-            total=self.total, 
-            completed=self.progress, 
-            width=None, 
-            pulse=False,
-            style="#262626",
-            complete_style="#3b82f6",
-            finished_style="#3b82f6"
-        )
+        from rich.text import Text
+        if not self.base_data: return Text("")
+        
+        bars = "  ▂▃▄▅▆▇█"
+        max_val = max(self.base_data) if max(self.base_data) > 0 else 1
+        normalized = [int((v / max_val) * 8) for v in self.base_data]
+        
+        width = self.size.width if self.size.width > 0 else len(self.base_data)
+        if width == 0: width = 100
+        
+        resampled = []
+        for i in range(width):
+            idx = int(i * len(normalized) / width)
+            resampled.append(normalized[min(idx, len(normalized)-1)])
+        
+        percentage = self.progress / self.total if self.total > 0 else 0
+        split_idx = int(percentage * width)
+        
+        text = Text()
+        for i, val in enumerate(resampled):
+            char = bars[min(val, len(bars)-1)]
+            style = "#91abec" if i <= split_idx else "#333f62"
+            text.append(char, style=style)
+            
+        return text
 
     def on_click(self, event: events.Click) -> None:
         if self.total > 0:
             percentage = event.x / self.size.width
             self.post_message(self.SeekRequested(percentage))
 
-    class SeekRequested(Message):
-        def __init__(self, percentage: float) -> None:
-            self.percentage = percentage
-            super().__init__()
-
-class WaveformDisplay(Static):
-    """A responsive waveform display that uses Sparklines to mock an audio trace."""
-    class SeekRequested(Message):
-        def __init__(self, percentage: float) -> None:
-            self.percentage = percentage
-            super().__init__()
-
-    def compose(self) -> ComposeResult:
-        data = [abs(math.sin(i / 5.0)) * 10 + random.random() * 5 for i in range(100)]
-        yield Sparkline(data, summary_function=max)
-        
-    def on_click(self, event: events.Click) -> None:
-        percentage = event.x / self.size.width
-        self.post_message(self.SeekRequested(percentage))
-
     def update_data(self, data: List[float]) -> None:
-        self.query_one(Sparkline).data = data
+        self.base_data = data
+        self.refresh()
 
 class Player(Horizontal):
     """Professional audio transport controls."""
@@ -306,7 +378,7 @@ class Player(Horizontal):
         yield Button("PLAY", id="btn-player-play", variant="success")
         yield Button("STOP", id="btn-player-stop", variant="error")
         yield Label("00:00", id="audio-time-current")
-        yield SeekableBar(id="audio-progress")
+        yield WaveformDisplay(id="audio-waveform")
         yield Label("00:00", id="audio-time-total")
 
     def on_mount(self) -> None:
@@ -320,7 +392,7 @@ class Player(Horizontal):
         try:
             player = self.app.audio_engine.player
             pos, dur = player.get_current_position(), player.duration
-            bar = self.query_one("#audio-progress", SeekableBar)
+            bar = self.query_one("#audio-waveform", WaveformDisplay)
             bar.total = dur if dur > 0 else 1.0
             bar.progress = pos
             self.query_one("#audio-time-current", Label).update(self._format_time(pos))
@@ -334,7 +406,7 @@ class Player(Horizontal):
                 except: pass
         except: pass
 
-    def on_seekable_bar_seek_requested(self, message: SeekableBar.SeekRequested) -> None:
+    def on_waveform_display_seek_requested(self, message: WaveformDisplay.SeekRequested) -> None:
         try:
             player = self.app.audio_engine.player
             if player.duration > 0:
@@ -368,8 +440,9 @@ class LibraryTab(Container):
         Binding("f2", "rename_asset", "Rename"),
         Binding("delete", "delete_asset", "Delete"),
         Binding("ctrl+a", "select_all", "Select All"),
+        Binding("ctrl+d", "deselect_all", "Deselect"),
         Binding("f5", "sync_library", "Sync"),
-        Binding("c", "set_cover", "Set Cover"),
+        Binding("l", "link_asset", "Link"),
         Binding("d", "downgrade_beat", "Downgrade"),
         Binding("escape", "cancel_edit", "Cancel Edit", show=False),
         Binding("space", "toggle_selection", "Select"),
@@ -385,6 +458,7 @@ class LibraryTab(Container):
     def compose(self) -> ComposeResult:
         with Vertical(id="library-header"):
             with Horizontal(id="lib-header-row-1"):
+                yield Label("FILTER:", classes="menu-label")
                 yield Input(placeholder="Search assets...", id="lib-filter-search")
                 yield Select([
                     ("ALL TYPES", "all"),
@@ -394,28 +468,51 @@ class LibraryTab(Container):
                 ], id="lib-filter-type", value="all")
             
             with Horizontal(id="lib-header-row-2"):
+                yield Label("FILE:", classes="menu-label")
                 yield Select([
-                    ("ACTIONS...", "none"),
-                    ("PREVIEW [P]", "preview"),
-                    ("MAKE BEAT [B]", "make_beat"),
-                    ("DOWNGRADE [D]", "downgrade"),
-                    ("SET COVER [C]", "set_cover"),
+                    ("...", "none"),
+                    ("IMPORT [^I]", "import"),
                     ("EXPORT [E]", "export"),
                     ("MOVE [M]", "move"),
                     ("DISK SYNC [F5]", "sync"),
-                    ("IMPORT [^I]", "import"),
+                    ("EMPTY TRASH", "empty_trash")
+                ], id="lib-file-dropdown", value="none")
+                
+                yield Label("EDIT:", classes="menu-label")
+                yield Select([
+                    ("...", "none"),
+                    ("PREVIEW [P]", "preview"),
+                    ("MAKE BEAT [B]", "make_beat"),
+                    ("DOWNGRADE [D]", "downgrade"),
+                    ("LINK ASSET [L]", "link_asset"),
+                    ("ADD MASTER", "add_master"),
+                    ("CONVERT TO MP3", "convert_mp3"),
+                    ("RESTORE TRASH", "restore_trash"),
                     ("DELETE [DEL]", "delete")
-                ], id="lib-actions-dropdown", value="none")
+                ], id="lib-edit-dropdown", value="none")
         
         with Vertical(id="library-main-content"):
             with Horizontal(id="library-body-split"):
                 with Container(id="library-table-container"):
                     yield DataTable(id="library-table", cursor_type="row")
                     yield Input(id="inline-editor", classes="hidden")
-                
-                with Vertical(id="library-inspector", classes="island hidden"):
-                    yield Label("WAVEFORM INSPECTOR", classes="section-label")
-                    yield WaveformDisplay(id="inspector-waveform")
+                with Vertical(id="library-inspector"):
+                    yield Label("ASSET INFO", classes="panel_title")
+                    with TabbedContent(id="inspector-tabs"):
+                        with TabPane("NOTES", id="tab-notes"):
+                            yield TextArea(id="inspector-notes")
+                        with TabPane("METADATA", id="tab-metadata"):
+                            with VerticalScroll():
+                                with Grid(id="meta-grid"):
+                                    yield Label("Genre")
+                                    yield Input(id="meta-genre")
+                                    yield Label("Mood")
+                                    yield Input(id="meta-mood")
+                                    yield Label("Key")
+                                    yield Input(id="meta-key")
+                                    yield Label("BPM")
+                                    yield Input(id="meta-bpm")
+                    yield Button("SAVE", id="btn-inspector-save", variant="success")
             yield Player(id="library-player")
 
     def on_mount(self) -> None:
@@ -423,6 +520,7 @@ class LibraryTab(Container):
         table.selected_rows = set()
         table.add_columns(" ", "ID", "NAME", "TYPE", "DATA", "BPM", "KEY", "DURATION")
         self.library_engine = LibraryManagerEngine()
+        self.populate_inspector(None)
         self.refresh_library()
 
     @on(Input.Submitted, "#inline-editor")
@@ -449,15 +547,11 @@ class LibraryTab(Container):
 
     def watch_currently_playing_id(self, value: str | None) -> None:
         try:
-            inspector = self.query_one("#library-inspector")
-            waveform = self.query_one("#inspector-waveform", WaveformDisplay)
+            waveform = self.query_one("#audio-waveform", WaveformDisplay)
             if value is not None:
-                inspector.remove_class("hidden")
                 # Generate new dummy waveform for visual variety
                 new_data = [abs(math.sin(i / random.uniform(3.0, 8.0))) * 10 + random.random() * 5 for i in range(100)]
                 waveform.update_data(new_data)
-            else:
-                inspector.add_class("hidden")
         except: pass
         self.refresh_library()
 
@@ -475,10 +569,10 @@ class LibraryTab(Container):
             old_cursor_row = table.cursor_row
             
             table.clear()
-            selected_rows = getattr(table, "selected_rows", set())
+            selected_ids = getattr(table, "selected_rows", set())
             for a in self.assets:
                 asset_id = str(a.get('id'))
-                marker = "[*]" if asset_id in selected_rows else "[ ]"
+                marker = "[*]" if asset_id in selected_ids else "[ ]"
                 
                 raw_name = a.get('name', 'Unknown')
                 display_name = f"[bold green]▶ {raw_name}[/bold green]" if asset_id == self.currently_playing_id else raw_name
@@ -507,6 +601,9 @@ class LibraryTab(Container):
                 table.cursor_row = playing_index
             elif old_cursor_row is not None and len(self.assets) > 0:
                 table.cursor_row = min(old_cursor_row, len(self.assets) - 1)
+            
+            if len(self.assets) == 0:
+                self.populate_inspector(None)
         except: pass
 
     @on(Input.Changed, "#lib-filter-search")
@@ -514,44 +611,181 @@ class LibraryTab(Container):
     def handle_filters_changed(self) -> None:
         self.refresh_library()
 
-    @on(Select.Changed, "#lib-actions-dropdown")
+    @on(Select.Changed, "#lib-file-dropdown")
+    @on(Select.Changed, "#lib-edit-dropdown")
     def handle_action_selected(self, event: Select.Changed) -> None:
         action = str(event.value)
         if action == "none": return
         
         # Reset dropdown
-        self.query_one("#lib-actions-dropdown", Select).value = "none"
+        try:
+            self.query_one("#lib-file-dropdown", Select).value = "none"
+            self.query_one("#lib-edit-dropdown", Select).value = "none"
+        except: pass
 
         if action == "preview": self.action_preview()
         elif action == "make_beat": self.action_make_beat()
         elif action == "downgrade": self.action_downgrade_beat()
-        elif action == "set_cover": self.action_set_cover()
+        elif action == "link_asset": self.action_link_asset()
+        elif action == "add_master": self.action_add_master()
+        elif action == "convert_mp3": self.action_convert_mp3()
+        elif action == "restore_trash": self.action_restore_trash()
+        elif action == "empty_trash": self.action_empty_trash()
         elif action == "export": self.action_export_beat()
         elif action == "move": self.action_move_beat()
         elif action == "sync": self.action_sync_library()
         elif action == "import": self.app.action_toggle_import()
         elif action == "delete": self.action_delete_asset()
 
-    def on_waveform_display_seek_requested(self, message: WaveformDisplay.SeekRequested) -> None:
-        try:
-            player = self.app.audio_engine.player
-            if player.duration > 0 and player.is_playing:
-                target = message.percentage * player.duration
-                player.play(player.current_file, start_offset=target)
-        except: pass
+    @on(DataTable.RowSelected, "#library-table")
+    def handle_row_selected(self, event: DataTable.RowSelected) -> None:
+        row_key = event.row_key
+        asset_id = str(self.query_one("#library-table").get_row(row_key)[1])
+        self.populate_inspector(asset_id)
+        
+    def populate_inspector(self, asset_id: str | None) -> None:
+        inspector = self.query_one("#library-inspector")
+        notes_area = self.query_one("#inspector-notes", TextArea)
+        
+        if not asset_id:
+            notes_area.text = ""
+            self.query_one("#meta-genre", Input).value = ""
+            self.query_one("#meta-mood", Input).value = ""
+            self.query_one("#meta-key", Input).value = ""
+            self.query_one("#meta-bpm", Input).value = ""
+            if hasattr(inspector, 'asset_id'): del inspector.asset_id
+            return
+
+        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+        if not asset:
+            self.populate_inspector(None)
+            return
+        
+        # Load notes
+        notes_path = ""
+        if asset.get('asset_type') == 'beat':
+            notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
+        elif asset.get('asset_type') == 'raw':
+            notes_path = os.path.join(self.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
+            
+        if os.path.exists(notes_path):
+            try:
+                with open(notes_path, "r") as f:
+                    notes_area.text = f.read()
+            except Exception:
+                notes_area.text = ""
+        else:
+            notes_area.text = ""
+            
+        # Load metadata
+        meta = asset.get('metadata', {})
+        if asset.get('asset_type') == 'beat':
+            meta_json_path = os.path.join(asset.get('path', ''), "metadata.json")
+            if os.path.exists(meta_json_path):
+                import json
+                try:
+                    with open(meta_json_path, "r") as f:
+                        loaded_meta = json.load(f)
+                        meta.update(loaded_meta)
+                except: pass
+                    
+        self.query_one("#meta-genre", Input).value = meta.get("genre", "")
+        self.query_one("#meta-mood", Input).value = meta.get("mood", "")
+        
+        self.query_one("#meta-key", Input).value = str(meta.get("key", asset.get("key", "")))
+        self.query_one("#meta-bpm", Input).value = str(meta.get("bpm", asset.get("bpm", "")))
+        
+        inspector.asset_id = asset_id
+
+    @on(Button.Pressed, "#btn-inspector-save")
+    def handle_inspector_save(self) -> None:
+        inspector = self.query_one("#library-inspector")
+        if not hasattr(inspector, 'asset_id'): return
+        
+        asset_id = inspector.asset_id
+        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+        if not asset: return
+        
+        # Save notes
+        notes_text = self.query_one("#inspector-notes", TextArea).text
+        notes_path = ""
+        if asset.get('asset_type') == 'beat':
+            notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
+        elif asset.get('asset_type') == 'raw':
+            notes_path = os.path.join(self.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
+            
+        if notes_path:
+            try:
+                with open(notes_path, "w") as f:
+                    f.write(notes_text)
+            except Exception as e:
+                self.app.notify(f"Failed to save notes: {e}", severity="error")
+                
+        # Save metadata
+        genre = self.query_one("#meta-genre", Input).value
+        mood = self.query_one("#meta-mood", Input).value
+        key = self.query_one("#meta-key", Input).value
+        bpm_str = self.query_one("#meta-bpm", Input).value
+        
+        bpm = None
+        if bpm_str:
+            try: bpm = float(bpm_str)
+            except: pass
+            
+        meta_updates = {"genre": genre, "mood": mood}
+        if key: meta_updates["key"] = key
+        if bpm is not None: meta_updates["bpm"] = bpm
+        
+        if asset.get('asset_type') == 'beat':
+            meta_json_path = os.path.join(asset.get('path', ''), "metadata.json")
+            import json
+            current_meta = {}
+            if os.path.exists(meta_json_path):
+                try:
+                    with open(meta_json_path, "r") as f:
+                        current_meta = json.load(f)
+                except: pass
+                
+            current_meta.update(meta_updates)
+            try:
+                with open(meta_json_path, "w") as f:
+                    json.dump(current_meta, f)
+            except Exception as e:
+                self.app.notify(f"Failed to save metadata.json: {e}", severity="error")
+                
+            # Update DB metadata and top-level fields
+            db_meta = asset.get('metadata', {})
+            db_meta.update(current_meta)
+            update_payload = {"metadata": db_meta}
+            if key: update_payload["key"] = key
+            if bpm is not None: update_payload["bpm"] = bpm
+            self.library_engine.update_asset(asset_id, update_payload)
+        else:
+            current_meta = asset.get('metadata', {})
+            current_meta.update(meta_updates)
+            update_payload = {"metadata": current_meta}
+            if key: update_payload["key"] = key
+            if bpm is not None: update_payload["bpm"] = bpm
+            self.library_engine.update_asset(asset_id, update_payload)
+            
+        self.app.notify("Saved notes and metadata.", severity="information")
+        self.refresh_library()
 
     def action_toggle_selection(self) -> None:
         table = self.query_one("#library-table", DataTable)
         if table.cursor_row is not None:
             row_keys = list(table.rows.keys())
+            if table.cursor_row >= len(row_keys): return
             row_key = row_keys[table.cursor_row]
+            asset_id = str(table.get_row(row_key)[1])
+            
             if not hasattr(table, "selected_rows"): table.selected_rows = set()
 
-            if row_key in table.selected_rows:
-                table.selected_rows.remove(row_key)
+            if asset_id in table.selected_rows:
+                table.selected_rows.remove(asset_id)
                 table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
             else:
-                table.selected_rows.add(row_key)
+                table.selected_rows.add(asset_id)
                 table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
             table.action_cursor_down()
 
@@ -560,13 +794,45 @@ class LibraryTab(Container):
             table = self.query_one("#library-table", DataTable)
             selected_rows = getattr(table, "selected_rows", set())
             if selected_rows:
-                return [str(table.get_row(key)[1]) for key in selected_rows]
+                return list(selected_rows)
             if table.cursor_row is not None:
                 row_keys = list(table.rows.keys())
                 if 0 <= table.cursor_row < len(row_keys):
                     return [str(table.get_row(row_keys[table.cursor_row])[1])]
         except: pass
         return []
+
+    def action_add_master(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: return self.app.notify("No assets selected", severity="warning")
+        
+        def on_path_selected(path: str | None) -> None:
+            if path:
+                count = 0
+                for beat_id in ids:
+                    if self.library_engine.add_master_version(beat_id, path):
+                        count += 1
+                if count > 0:
+                    self.app.notify(f"Added master version to {count} beats.")
+                    self.refresh_library()
+        
+        self.app.push_screen(PathPicker(), on_path_selected)
+
+    def action_convert_mp3(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: return self.app.notify("No assets selected", severity="warning")
+        
+        count = 0
+        for asset_id in ids:
+            try:
+                if self.library_engine.generate_mp3_for_beat(asset_id):
+                    count += 1
+            except Exception as e:
+                self.app.notify(f"MP3 generation failed for {asset_id}: {str(e)}", severity="error")
+                continue
+        if count > 0:
+            self.app.notify(f"Generated MP3s for {count} beats.")
+            self.refresh_library()
 
     def action_export_beat(self) -> None:
         ids = self._get_selected_ids()
@@ -587,6 +853,9 @@ class LibraryTab(Container):
         ids = self._get_selected_ids()
         if not ids: return self.app.notify("No assets selected", severity="warning")
         
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"): table.selected_rows = set()
+
         def on_path_selected(path: str | None) -> None:
             if path:
                 count = 0
@@ -628,12 +897,18 @@ class LibraryTab(Container):
     def action_make_beat(self) -> None:
         ids = self._get_selected_ids()
         if not ids: return self.app.notify("No assets selected", severity="warning")
+        
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"): table.selected_rows = set()
+        
         count = 0
         for asset_id in ids:
             try:
                 self.library_engine.create_beat_from_audio(asset_id)
                 count += 1
-            except: continue
+            except Exception as e:
+                self.app.notify(f"Beat creation failed for {asset_id}: {str(e)}", severity="error")
+                continue
         if count > 0:
             self.app.notify(f"Created {count} beat structures.")
             self.refresh_library()
@@ -641,6 +916,10 @@ class LibraryTab(Container):
     def action_downgrade_beat(self) -> None:
         ids = self._get_selected_ids()
         if not ids: return self.app.notify("No assets selected", severity="warning")
+        
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"): table.selected_rows = set()
+        
         count = 0
         for asset_id in ids:
             try:
@@ -653,17 +932,73 @@ class LibraryTab(Container):
             self.app.notify(f"Downgraded {count} beats to raw audio.")
             self.refresh_library()
 
-    def action_set_cover(self) -> None:
+    def action_empty_trash(self) -> None:
+        def on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                count = self.library_engine.empty_trash()
+                self.app.notify(f"Trash emptied: {count} items removed.")
+        self.app.push_screen(ConfirmModal("Are you sure? This will permanently delete all files in the trash."), on_confirm)
+
+    def action_restore_trash(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: return self.app.notify("Select a BEAT to restore to.", severity="warning")
+        
+        target_id = ids[0]
+        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == target_id), None)
+        if not asset or asset.get('asset_type') != AssetType.BEAT:
+            return self.app.notify("Please select a BEAT asset as the target.", severity="error")
+            
+        trash_dir = self.library_engine.trash_dir
+        if not os.path.exists(trash_dir):
+            return self.app.notify("Trash is empty.", severity="warning")
+            
+        trash_items = [item for item in os.listdir(trash_dir) if os.path.isdir(os.path.join(trash_dir, item))]
+        if not trash_items:
+            return self.app.notify("Trash is empty.", severity="warning")
+            
+        def on_trash_selected(trash_name: str | None) -> None:
+            if trash_name:
+                try:
+                    self.library_engine.restore_from_trash(trash_name, target_id)
+                    self.app.notify(f"Restored beat state for {asset['name']}")
+                    self.refresh_library()
+                except Exception as e:
+                    self.app.notify(f"Restore failed: {str(e)}", severity="error")
+                    self.refresh_library()
+                    
+        self.app.push_screen(TrashPicker(trash_items), on_trash_selected)
+
+    def action_link_asset(self) -> None:
         ids = self._get_selected_ids()
         selected = [a for a in self.library_engine.get_assets() if str(a.get('id')) in ids]
         beats = [a for a in selected if a.get('asset_type') == 'beat']
-        images = [a for a in selected if a.get('data_type') == 'image']
-        if not beats or not images: return self.app.notify("Select one BEAT and one IMAGE.", severity="warning")
-        try:
-            self.library_engine.set_beat_cover(beats[0]['id'], images[0]['id'])
-            self.app.notify(f"Cover linked to {beats[0]['name']}")
+        others = [a for a in selected if a.get('asset_type') != 'beat']
+        
+        if not beats or not others: 
+            return self.app.notify("Select one BEAT and at least one other asset to link.", severity="warning")
+            
+        beat_id = beats[0]['id']
+        linked_count = 0
+        
+        for other in others:
+            role = "linked"
+            if other.get('data_type') == 'image': role = "cover"
+            elif other.get('asset_type') == 'raw': role = "source"
+            
+            # Update linked_assets dict
+            beat_doc = next((a for a in self.library_engine.get_assets() if a['id'] == beat_id), None)
+            if beat_doc:
+                linked = beat_doc.get('linked_assets', {})
+                linked[role] = other['id']
+                updates = {'linked_assets': linked}
+                if role == "cover": updates['cover_image_id'] = other['id'] # Keep legacy field in sync
+                
+                if self.library_engine.update_asset(beat_id, updates):
+                    linked_count += 1
+        
+        if linked_count > 0:
+            self.app.notify(f"Linked {linked_count} assets to {beats[0]['name']}")
             self.refresh_library()
-        except Exception as e: self.app.notify(f"Linking failed: {str(e)}", severity="error")
 
     def action_rename_asset(self) -> None:
         try:
@@ -716,9 +1051,18 @@ class LibraryTab(Container):
         table = self.query_one("#library-table", DataTable)
         if not hasattr(table, "selected_rows"): table.selected_rows = set()
         for row_key in table.rows: 
-            table.selected_rows.add(row_key)
+            asset_id = str(table.get_row(row_key)[1])
+            table.selected_rows.add(asset_id)
             table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
         self.app.notify("All items selected.")
+
+    def action_deselect_all(self) -> None:
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"):
+            table.selected_rows.clear()
+            for row_key in table.rows:
+                table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
+        self.app.notify("All items deselected.")
 
     def action_stop(self) -> None:
         self.app.audio_engine.stop_preview()
@@ -728,15 +1072,15 @@ class LibraryTab(Container):
 class YoutubeTab(Container):
     def compose(self) -> ComposeResult:
         with Horizontal(id="yt-row"):
-            with VerticalScroll(id="yt-left", classes="island"):
-                yield Label("UPLOAD HISTORY", classes="section-label")
+            with VerticalScroll(id="yt-left", classes="panel_container"):
+                yield Label("UPLOAD HISTORY", classes="panel_title")
                 yield DataTable(id="yt-uploads-table", cursor_type="row")
                 with Horizontal(classes="multi-input-row"):
                     yield Button("REFRESH", id="btn-yt-refresh", variant="default")
                     yield Button("DELETE", id="btn-yt-delete", variant="error")
             
-            with VerticalScroll(id="yt-right", classes="island"):
-                yield Label("YOUTUBE PUBLISHING", classes="section-label")
+            with VerticalScroll(id="yt-right", classes="panel_container"):
+                yield Label("YOUTUBE PUBLISHING", classes="panel_title")
                 
                 with Vertical(classes="form-group"):
                     yield Label("Video File Path")
@@ -816,6 +1160,21 @@ class BeatManagerApp(App):
         Binding("r", "refresh_all", "Refresh"), 
         Binding("ctrl+i", "toggle_import", "Import Panel")
     ]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        from textual.theme import Theme as TextualTheme
+        theme = TextualTheme(
+            name="dolphie_theme",
+            primary="white",
+            variables={
+                "white": "#e9e9e9", "green": "#54efae", "yellow": "#f6ff8f",
+                "red": "#fd8383", "highlight": "#91abec", "label": "#c5c7d2",
+                "panel_border": "#6171a6", "table_border": "#333f62",
+            },
+        )
+        self.register_theme(theme)
+        self.theme = "dolphie_theme"
 
     def compose(self) -> ComposeResult:
         yield Header()
