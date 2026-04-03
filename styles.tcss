@@ -1,56 +1,72 @@
-/* Global Theme: Cyberpunk/Synthwave */
+/* 
+ * BeatManager - Professional Terminal Theme
+ * A clean, modern CLI aesthetic based on Rich and standard terminal palettes.
+ */
+
+/* Global Colors & Base */
+$bg: #121212;
+$panel-bg: #1e1e1e;
+$surface: #262626;
+$border: #3f3f3f;
+$text: #d1d1d1;
+$text-muted: #808080;
+$primary: #3b82f6; /* Standard Blue */
+$success: #22c55e; /* Standard Green */
+$error: #ef4444;   /* Standard Red */
+$warning: #eab308; /* Standard Yellow */
+$accent: #6366f1;  /* Indigo highlight */
+
 Screen {
-    background: #0d0221;
-    color: #e0e0e0;
+    background: $bg;
+    color: $text;
 }
 
 Header {
-    background: #190061;
-    color: #00f9ff;
+    background: $surface;
+    color: $text;
     text-style: bold;
-    border-bottom: tall #240090;
+    border-bottom: hkey $border;
     height: 3;
+}
+
+Footer {
+    background: $surface;
+    color: $text-muted;
 }
 
 #footer-bar {
     height: 3;
-    background: #190061;
-    border-top: tall #240090;
+    background: $surface;
+    border-top: hkey $border;
     dock: bottom;
-}
-
-Footer {
-    background: transparent;
-    border: none;
-    color: #ff00ff;
 }
 
 TabbedContent {
     height: 1fr;
+    margin: 0 1;
 }
 
 TabPane {
     padding: 1 2;
     background: transparent;
     height: 1fr;
-    overflow-y: auto;
 }
 
-/* Custom Containers */
-Island {
-    background: #0f0524;
-    border: solid #240090;
+/* Panel / Island Styling */
+Island, .island {
+    background: $panel-bg;
+    border: round $border;
     padding: 1 2;
     margin: 1;
     height: auto;
-    min-height: 10;
 }
 
 .section-label {
-    color: #00f9ff;
+    color: $primary;
     text-style: bold;
-    margin: 1 0;
-    text-align: center;
+    margin-bottom: 1;
+    text-align: left;
+    width: 100%;
 }
 
 /* Stats Cards */
@@ -60,20 +76,21 @@ Island {
 }
 
 .stats-card {
-    width: 30;
+    width: 1fr;
+    max-width: 32;
     height: 7;
-    background: #190061;
-    border: double #ff00ff;
+    background: $surface;
+    border: round $border;
     margin: 1;
     align: center middle;
 }
 
-#stat-total { color: #00f9ff; }
-#stat-finished { color: #00ff00; }
-#stat-errors { color: #ff0000; }
+#stat-total { color: $primary; }
+#stat-finished { color: $success; }
+#stat-errors { color: $error; }
 
 .stats-label {
-    color: #ff00ff;
+    color: $text-muted;
     text-style: italic;
 }
 
@@ -81,15 +98,17 @@ Island {
 #active-task-container {
     height: auto;
     min-height: 10;
-    border: tall #00f9ff;
-    background: #0d0221;
+    width: 1fr;
+    max-width: 120;
+    border: round $primary;
+    background: $panel-bg;
     margin: 2 4;
     padding: 1 2;
     align: center middle;
 }
 
 #active-task-title {
-    color: #00f9ff;
+    color: $primary;
     text-style: bold;
     text-align: center;
     margin-bottom: 1;
@@ -102,59 +121,80 @@ Island {
     align: center middle;
 }
 
-.form-island {
-    width: 80;
-    height: auto;
-}
-
 Input {
-    background: #1a1a1a;
-    border: solid #240090;
-    color: #fff;
+    background: $surface;
+    border: round $border;
+    color: $text;
     margin-bottom: 1;
+    padding: 0 1;
 }
 
 Input:focus {
-    border: solid #00f9ff;
-    background: #240090;
+    border: round $primary;
+    background: $surface;
 }
 
 Select {
-    background: #1a1a1a;
-    border: solid #240090;
+    background: $surface;
+    border: round $border;
     margin-bottom: 1;
+    color: $text;
+}
+
+Select:focus {
+    border: round $primary;
+}
+
+TextArea {
+    background: $surface;
+    border: round $border;
+    color: $text;
+    margin-bottom: 1;
+}
+
+TextArea:focus {
+    border: round $primary;
 }
 
 Button {
     margin: 1 0;
     border: none;
-    background: #240090;
-    color: #e0e0e0;
+    background: $surface;
+    color: $text;
     width: 100%;
+    text-style: bold;
 }
 
 Button:hover {
-    background: #3500d3;
+    background: $border;
     color: #fff;
 }
 
 Button.-variant-primary {
-    background: #004488;
+    background: $primary;
+    color: #fff;
 }
 
 Button.-variant-success {
-    background: #006622;
+    background: $success;
+    color: #fff;
 }
 
 Button.-variant-warning {
-    background: #886600;
+    background: $warning;
+    color: #000;
+}
+
+Button.-variant-error {
+    background: $error;
+    color: #fff;
 }
 
 /* Queue Panel Toggle */
 #queue-panel {
     height: 15;
-    background: #080212;
-    border-top: tall #240090;
+    background: $bg;
+    border-top: round $border;
 }
 
 #queue-panel.hidden {
@@ -163,93 +203,145 @@ Button.-variant-warning {
 
 #btn-toggle-queue {
     width: 15;
-    background: #240090;
-    color: #00f9ff;
+    background: $surface;
+    color: $primary;
     border: none;
     margin: 0;
     height: 100%;
 }
 
-#btn-toggle-queue:hover {
-    background: #3500d3;
-}
-
 /* Library Layout */
-#library-row {
-    height: 1fr;
-}
-
-#library-main {
-    width: 1fr;
-    height: 1fr;
-}
-
 #library-header {
-    height: 4;
-    background: #190061;
-    border-bottom: solid #240090;
-    padding: 0 1;
+    height: auto;
+    background: $panel-bg;
+    border: round $border;
+    margin: 1 1 0 1;
+    padding: 1;
+}
+
+#lib-header-row-1, #lib-header-row-2 {
+    height: auto;
     align: left middle;
+}
+
+#lib-header-row-1 {
     margin-bottom: 1;
-}
-
-#lib-title {
-    color: #00f9ff;
-    text-style: bold;
-    margin-right: 1;
-    width: auto;
-}
-
-LibraryFilterBar {
-    width: 1fr;
-    height: 3;
 }
 
 #lib-filter-search {
     width: 1fr;
     height: 3;
-    margin: 0;
-    border: none;
-    background: #0d0221;
+    margin-right: 1;
+    background: $bg;
+    border: round $border;
 }
 
 #lib-filter-type {
-    width: 18;
+    width: 24;
+    height: 3;
+    background: $bg;
+    border: round $border;
+}
+
+#lib-actions-dropdown {
+    width: 1fr;
+    height: 3;
+    background: $surface;
+    border: round $primary;
+}
+
+#library-main-content {
+    margin: 1;
+    border: round $border;
+    background: $panel-bg;
+}
+
+#library-body-split {
+    height: 1fr;
+}
+
+#library-inspector {
+    width: 30%;
+    min-width: 30;
+    height: 1fr;
+    margin: 0 0 0 1;
+    border: round $primary;
+    background: $bg;
+}
+
+#library-inspector.hidden {
+    display: none;
+}
+
+WaveformDisplay {
+    height: 1fr;
+    margin-top: 1;
+    align: center middle;
+    content-align: center middle;
+}
+
+WaveformDisplay Sparkline {
+    color: $success;
+}
+
+WaveformDisplay Sparkline > .sparkline--max-color {
+    color: $primary;
+}
+
+#library-player {
+    height: 5;
+    background: $surface;
+    border-top: round $border;
+    padding: 0 2;
+    align: left middle;
+}
+
+#audio-time-current, #audio-time-total {
+    width: 8;
+    text-align: center;
+    color: $text-muted;
+}
+
+#audio-progress {
+    width: 1fr;
+    height: 1;
+    margin: 0 2;
+}
+
+#btn-player-play, #btn-player-stop {
+    width: 6;
     height: 3;
     margin: 0 1;
-    border: none;
-    background: #0d0221;
-}
-
-#lib-actions {
-    width: auto;
-    height: 3;
-    align: right middle;
-}
-
-#lib-actions Button {
-    width: 4;
-    height: 3;
-    min-width: 4;
-    margin: 0;
+    min-width: 6;
     padding: 0;
-    border: none;
-    background: transparent;
+    background: $surface;
 }
 
-#lib-actions Button:hover {
-    background: #240090;
-    color: #00f9ff;
-}
-
-#btn-library-delete:hover {
-    background: #880000;
-}
-
+#btn-player-play:hover { color: $success; }
+#btn-player-stop:hover { color: $error; }
 
 #library-table-container {
     height: 1fr;
     position: relative;
+}
+
+#library-table {
+    border: none;
+}
+
+DataTable {
+    background: transparent;
+}
+
+DataTable > .datatable--header {
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $primary 30%;
+    color: #fff;
 }
 
 #inline-editor {
@@ -258,191 +350,172 @@ LibraryFilterBar {
     border: none;
     padding: 0 1;
     margin: 0;
-    background: #00f9ff;
-    color: #190061;
+    background: $primary;
+    color: #fff;
 }
 
 #inline-editor.hidden {
     display: none;
 }
 
+/* Overlay & Modals */
 ModalScreen {
-    background: #000000 50%;
+    background: #000000 70%;
     align: center middle;
 }
 
 #import-overlay {
-    height: 80%;
-    width: 100%;
-    dock: bottom;
-    background: #080212;
-    border-top: solid #00f9ff;
-    padding: 1 2;
+    height: 85%;
+    width: 95%;
+    background: $panel-bg;
+    border: round $primary;
+    padding: 0;
+    layer: top;
+    margin-bottom: 2;
 }
 
 #import-overlay.hidden {
     display: none;
 }
 
-#import-controls-row {
-    height: 7;
-    margin-bottom: 1;
+#import-toolbar {
+    height: 5;
+    background: $surface;
+    border-bottom: round $border;
+    padding: 0 2;
+    align: left middle;
 }
 
-#import-path-col {
+#import-title {
+    color: $primary;
+    text-style: bold;
+    margin-right: 2;
+    width: auto;
+}
+
+#import-search-path {
     width: 1fr;
-    height: 100%;
-}
-
-#import-path-row {
     height: 3;
+    margin: 0;
+    border: none;
+    background: $bg;
 }
 
-#import-path-row Input {
-    width: 1fr;
-    height: 3;
-}
-
-#import-path-row Button {
-    width: 5;
-    min-width: 5;
+#import-toolbar Button {
+    width: auto;
+    min-width: 8;
     height: 3;
     margin-left: 1;
 }
 
-#import-toggles-col {
-    width: 45;
-    height: 100%;
-    padding-left: 2;
-    align: left middle;
-}
-
-#import-toggles-col Checkbox {
-    height: auto;
-    margin-bottom: 1;
-    min-width: 100%;
-}
-
-#import-modal-buttons {
-    height: 3;
-    margin-top: 1;
-    align: center middle;
-}
-
-#import-modal-buttons Button {
+#import-toolbar Checkbox {
     width: auto;
-    margin: 0 1;
+    min-width: 12;
+    height: 3;
+    margin-left: 1;
 }
 
-#import-results-table {
-    height: 1fr;
-    margin: 0;
-    border: solid #240090;
+#import-footer {
+    height: 5;
+    background: $surface;
+    border-top: round $border;
+    padding: 0 2;
+    align: right middle;
+}
+
+#import-footer Button {
+    width: auto;
+    min-width: 14;
+    height: 3;
+    margin-left: 1;
+}
+
+/* Checkbox fix */
+Checkbox {
+    width: auto;
+    min-width: 12;
+    background: transparent;
+    border: none;
+}
+
+Checkbox:focus {
+    color: $primary;
 }
 
 /* Path Picker Modal */
 #picker-container {
-    width: 70%;
-    height: 70%;
-    background: #0d0221;
-    border: tall #00f9ff;
+    width: 80;
+    height: 30;
+    background: $panel-bg;
+    border: round $primary;
     padding: 1 2;
 }
 
 #picker-tree {
     height: 1fr;
-    border: solid #240090;
-    background: #000;
+    border: round $border;
+    background: $bg;
+    margin: 1 0;
 }
 
 #picker-buttons {
     height: 3;
-    margin-top: 1;
+    align: right middle;
 }
 
 #picker-buttons Button {
-    width: 20;
-    margin: 0 1;
+    width: 15;
+    margin-left: 1;
 }
 
-/* Strategy Layout */
-#strat-row {
-    height: 1fr;
+/* Youtube Tab Layout */
+#yt-row {
+    padding: 1;
 }
 
-#strat-left {
-    width: 45%;
+#yt-left {
+    width: 40%;
+    margin: 1;
 }
 
-#strat-right {
-    width: 55%;
+#yt-right {
+    width: 60%;
+    margin: 1;
 }
 
-.json-editor {
-    height: 1fr;
-    background: #000;
-    border: solid #240090;
-    margin-bottom: 1;
-}
-
-.json-editor-small {
-    height: 15;
-    background: #000;
-    border: solid #240090;
-    margin-bottom: 1;
-}
-
-.status-bar-simple {
-    height: 3;
-    background: #190061;
-    padding: 0 2;
-    align: center middle;
+.multi-input-row {
+    height: auto;
     margin-top: 1;
 }
 
-.issues-list {
-    height: 10;
-    background: #000;
-    border: solid #240090;
-    margin-bottom: 1;
+.multi-input-row Button {
+    width: 1fr;
+    margin: 0 1;
 }
 
-.issue-ok { color: #00ff00; }
-.issue-warn { color: #ffff00; }
-
-#asset-label { color: #ff00ff; margin-right: 1; }
-#asset-status { color: #00f9ff; text-style: bold; }
-
-DataTable {
-    background: transparent;
-    border: none;
-    height: 20;
-}
-
-DataTable > .datatable--header {
-    background: #190061;
-    color: #00f9ff;
+.small-text-area {
+    height: 8;
 }
 
 /* Status Colors */
-.status-pending { color: #888; }
-.status-processing { color: #ffff00; text-style: italic; }
-.status-finished { color: #00ff00; text-style: bold; }
-.status-error { color: #ff0000; text-style: bold; }
-.status-uploaded { color: #00f9ff; text-style: bold; }
+.status-pending { color: $text-muted; }
+.status-processing { color: $warning; }
+.status-finished { color: $success; text-style: bold; }
+.status-error { color: $error; text-style: bold; }
+.status-uploaded { color: $primary; text-style: bold; }
 
 /* Log Modal */
 #log-container {
     width: 80%;
     height: 80%;
-    background: #0d0221;
-    border: tall #ff00ff;
+    background: $panel-bg;
+    border: round $error;
     padding: 1 2;
 }
 
 #log-text {
     height: 1fr;
     width: 1fr;
-    border: solid #240090;
-    background: #000;
+    border: round $border;
+    background: $bg;
 }

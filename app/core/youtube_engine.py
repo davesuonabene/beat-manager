@@ -6,7 +6,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.errors import HttpError
-from app.models.schemas import UploadConfig, TaskResult
+from app.models.schemas import UploadConfig, TaskResult, YTVideoUploadSchema, VideoDataSchema, ChannelDataSchema
 
 # Internal logger for this module
 logger = logging.getLogger(__name__)
@@ -131,6 +131,29 @@ class YouTubeEngine:
         except Exception as e:
             logger.error(f"Unexpected error during YouTube upload: {str(e)}")
             return TaskResult(success=False, error_message=str(e))
+
+    def upload_video_v2(self, upload_data: YTVideoUploadSchema) -> bool:
+        """Mock upload video."""
+        return True
+
+    def get_video_data(self, video_id: str) -> VideoDataSchema:
+        """Mock get video data."""
+        return VideoDataSchema(
+            video_id=video_id,
+            views=1500,
+            likes=120,
+            comment_count=15,
+            retention_rate=45.2
+        )
+
+    def get_channel_data(self, channel_id: str) -> ChannelDataSchema:
+        """Mock get channel data."""
+        return ChannelDataSchema(
+            channel_id=channel_id,
+            subscriber_count=10000,
+            total_views=500000,
+            video_count=42
+        )
 
 if __name__ == "__main__":
     print("YouTubeEngine class loaded from app.core.youtube_engine.")

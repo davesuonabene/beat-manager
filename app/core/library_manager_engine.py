@@ -152,7 +152,8 @@ class LibraryManagerEngine:
         # Move files
         old_audio_path = audio_doc['path']
         audio_ext = os.path.splitext(old_audio_path)[1]
-        new_audio_filename = f"main{audio_ext}"
+        safe_beat_name = self._sanitize_filename(name)
+        new_audio_filename = f"raw-{safe_beat_name}{audio_ext}"
         new_audio_path = os.path.join(beat_path, new_audio_filename)
         shutil.move(old_audio_path, new_audio_path)
 
@@ -184,6 +185,85 @@ class LibraryManagerEngine:
             
         self.assets_table.insert(beat.dict())
         return beat
+
+    def downgrade_beat_to_raw(self, beat_id: str) -> AudioAsset:
+        """Convert a structured BEAT asset back into a raw audio asset."""
+        beat_doc = self.assets_table.get(Query().id == beat_id)
+        if not beat_doc or beat_doc.get('asset_type') != AssetType.BEAT:
+            raise ValueError(f"Asset {beat_id} is not a valid BEAT.")
+
+        beat_path = beat_doc['path']
+        if not os.path.exists(beat_path):
+            raise FileNotFoundError(f"Beat folder not found: {beat_path}")
+
+        # 1. Identify main audio file
+        versions = beat_doc.get('versions', {})
+        main_filename = versions.get('main')
+        
+        # Fallback if 'main' is missing or just generic detection
+        if not main_filename or not os.path.exists(os.path.join(beat_path, main_filename)):
+            audio_exts = ('.wav', '.mp3', '.flac', '.aiff')
+            files = [f for f in os.listdir(beat_path) if f.lower().endswith(audio_exts)]
+            if not files:
+                raise FileNotFoundError("No audio file found in beat folder.")
+            main_filename = files[0]
+
+        main_audio_path = os.path.join(beat_path, main_filename)
+        
+        # 2. Extract notes if they exist
+        notes_filename = beat_doc.get('notes_file', 'notes.txt')
+        notes_path = os.path.join(beat_path, notes_filename)
+        has_notes = os.path.exists(notes_path)
+
+        # 3. Move back to central audio_dir
+        safe_name = self._sanitize_filename(beat_doc['name'])
+        ext = os.path.splitext(main_filename)[1]
+        
+        dest_audio_filename = f"{safe_name}{ext}"
+        dest_audio_path = os.path.join(self.audio_dir, dest_audio_filename)
+        
+        # Handle collision in audio_dir
+        if os.path.exists(dest_audio_path):
+            count = 1
+            while os.path.exists(os.path.join(self.audio_dir, f"{safe_name}_{count}{ext}")):
+                count += 1
+            safe_name = f"{safe_name}_{count}"
+            dest_audio_filename = f"{safe_name}{ext}"
+            dest_audio_path = os.path.join(self.audio_dir, dest_audio_filename)
+
+        shutil.move(main_audio_path, dest_audio_path)
+        
+        dest_notes_filename = None
+        if has_notes:
+            dest_notes_filename = f"{safe_name}.txt"
+            shutil.move(notes_path, os.path.join(self.audio_dir, dest_notes_filename))
+        else:
+             # Ensure a notes file exists if we want consistency with import_raw_audio
+             dest_notes_filename = f"{safe_name}.txt"
+             open(os.path.join(self.audio_dir, dest_notes_filename), 'w').close()
+
+        # 4. Cleanup beat folder
+        try:
+            shutil.rmtree(beat_path)
+        except Exception:
+            pass
+
+        # 5. Update DB (remove beat, insert raw audio)
+        raw_asset = AudioAsset(
+            name=beat_doc['name'],
+            path=dest_audio_path,
+            audio_file=dest_audio_filename,
+            notes_file=dest_notes_filename,
+            duration=beat_doc.get('duration', 0),
+            bpm=beat_doc.get('bpm'),
+            key=beat_doc.get('key'),
+            asset_type=AssetType.RAW
+        )
+
+        self.assets_table.remove(Query().id == beat_id)
+        self.assets_table.insert(raw_asset.dict())
+        
+        return raw_asset
 
     def rename_asset(self, asset_id: str, new_name: str):
         asset_doc = self.assets_table.get(Query().id == asset_id)
@@ -335,3 +415,53 @@ class LibraryManagerEngine:
                     })
         
         return potential_assets
+
+    def export_beat(self, beat_id: str, destination_dir: str) -> bool:
+        """Copies a beat folder and its contents to a target directory outside the library."""
+        asset = self.assets_table.get(Query().id == beat_id)
+        if not asset or asset.get('asset_type') != AssetType.BEAT:
+            return False
+            
+        source_path = asset.get('path')
+        if not source_path or not os.path.exists(source_path):
+            return False
+            
+        os.makedirs(destination_dir, exist_ok=True)
+        # Using beat name as folder name in destination
+        safe_name = self._sanitize_filename(asset.get('name', 'exported_beat'))
+        dest_path = os.path.join(destination_dir, safe_name)
+        
+        # Handle filename collisions in destination
+        if os.path.exists(dest_path):
+            count = 1
+            while os.path.exists(f"{dest_path}_{count}"):
+                count += 1
+            dest_path = f"{dest_path}_{count}"
+            
+        shutil.copytree(source_path, dest_path)
+        return True
+
+    def move_beat(self, beat_id: str, destination_dir: str) -> bool:
+        """Moves a beat folder to a target directory and updates the library path."""
+        asset = self.assets_table.get(Query().id == beat_id)
+        if not asset or asset.get('asset_type') != AssetType.BEAT:
+            return False
+            
+        source_path = asset.get('path')
+        if not source_path or not os.path.exists(source_path):
+            return False
+            
+        os.makedirs(destination_dir, exist_ok=True)
+        safe_name = self._sanitize_filename(asset.get('name', 'moved_beat'))
+        dest_path = os.path.join(destination_dir, safe_name)
+        
+        # Handle filename collisions in destination
+        if os.path.exists(dest_path):
+            count = 1
+            while os.path.exists(f"{dest_path}_{count}"):
+                count += 1
+            dest_path = f"{dest_path}_{count}"
+            
+        shutil.move(source_path, dest_path)
+        self.assets_table.update({"path": dest_path}, Query().id == beat_id)
+        return True

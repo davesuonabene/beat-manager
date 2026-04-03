@@ -73,3 +73,40 @@ class TaskResult(BaseModel):
     success: bool = Field(..., description="Whether the task completed successfully")
     output_path: Optional[str] = Field(None, description="Path to the produced output, if applicable")
     error_message: Optional[str] = Field(None, description="Error message if the task failed")
+
+class YTVideoUploadSchema(BaseModel):
+    video_file_path: str = Field(..., description="Path to the video file")
+    thumbnail_file_path: Optional[str] = Field(None, description="Path to the thumbnail file")
+    title: str = Field(..., description="Title of the video")
+    description: str = Field(..., description="Description of the video")
+    tags: List[str] = Field(default_factory=list, description="List of tags")
+    category_id: str = Field(default="10", description="Category ID")
+    privacy_status: PrivacyEnum = Field(default=PrivacyEnum.PRIVATE, description="Privacy status")
+    publish_at: Optional[str] = Field(None, description="ISO 8601 publish date")
+
+class VideoDataSchema(BaseModel):
+    video_id: str
+    views: int
+    likes: int
+    comment_count: int
+    retention_rate: Optional[float] = None
+
+class ChannelDataSchema(BaseModel):
+    channel_id: str
+    subscriber_count: int
+    total_views: int
+    video_count: int
+
+class YTUploadAsset(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the upload asset")
+    video_file_path: str = Field(..., description="Path to the video file")
+    thumbnail_file_path: Optional[str] = Field(None, description="Path to the thumbnail file")
+    title: str = Field(..., description="YouTube video title")
+    description: str = Field(default="", description="YouTube video description")
+    tags: List[str] = Field(default_factory=list, description="List of tags")
+    category_id: str = Field(default="10", description="Category ID")
+    privacy_status: PrivacyEnum = Field(default=PrivacyEnum.PRIVATE, description="Video privacy setting")
+    publish_at: Optional[str] = Field(None, description="ISO 8601 formatted string for scheduled publishing")
+    status: str = Field(default="draft", description="Status: draft, queued, uploaded, error")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    youtube_id: Optional[str] = Field(None, description="YouTube Video ID once uploaded")

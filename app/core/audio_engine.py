@@ -11,29 +11,58 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 STATE_JSON = os.path.join(project_root, "state.json")
 
 class AudioPlayer:
-    """Simple audio player using ffplay in a separate thread."""
+    """Simple audio audio_player using ffplay in a separate thread."""
     def __init__(self):
         self._process = None
         self._lock = threading.Lock()
+        self.current_file = None
+        self.play_start_time = 0
+        self.start_offset = 0
+        self.duration = 0
+        self.is_playing = False
 
-    def play(self, file_path: str):
+    def play(self, file_path: str, start_offset: float = 0):
         self.stop()
         with self._lock:
+            # Get duration using mutagen if not provided
+            try:
+                audio = mutagen.File(file_path)
+                self.duration = audio.info.length if hasattr(audio.info, 'length') else 0
+            except:
+                self.duration = 0
+
+            self.current_file = file_path
+            self.start_offset = start_offset
+            self.play_start_time = time.time()
+            self.is_playing = True
+            
             # -nodisp: no video window, -autoexit: exit when finished, -loglevel quiet: no output
-            cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", file_path]
+            # -ss: start offset
+            cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-ss", str(start_offset), file_path]
             self._process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def get_current_position(self) -> float:
+        if not self.is_playing:
+            return 0
+        pos = (time.time() - self.play_start_time) + self.start_offset
+        if pos >= self.duration and self.duration > 0:
+            self.is_playing = False
+            return self.duration
+        return pos
 
     def stop(self):
         with self._lock:
+            self.is_playing = False
             if self._process:
                 try:
                     self._process.terminate()
-                    self._process.wait(timeout=0.5)
-                except subprocess.TimeoutExpired:
-                    self._process.kill()
-                except Exception:
-                    pass
+                    self._process.wait(timeout=0.2)
+                except:
+                    try: self._process.kill()
+                    except: pass
                 self._process = None
+
+import time
 
 class AudioEngine:
     def __init__(self):
@@ -41,8 +70,14 @@ class AudioEngine:
         self.audio_assets_table = self.state_manager.db.table('audio_assets')
         self.player = AudioPlayer()
 
-    def play_preview(self, path: str):
-        self.player.play(path)
+    @property
+    def current_playing_path(self) -> str | None:
+        if self.player.is_playing:
+            return self.player.current_file
+        return None
+
+    def play_preview(self, path: str, start_offset: float = 0):
+        self.player.play(path, start_offset=start_offset)
 
     def stop_preview(self):
         self.player.stop()

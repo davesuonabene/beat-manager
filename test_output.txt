@@ -1,0 +1,5 @@
+type: <class 'dict'>
+Error[0]: <class 'KeyError'> - 0
+Keys: [<textual.widgets._data_table.ColumnKey object at 0x7f2828780e10>, <textual.widgets._data_table.ColumnKey object at 0x7f2828781090>]
+Is cursor_row supported? True
+Is action_cursor_down supported? True
