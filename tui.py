@@ -79,49 +79,69 @@ class TrashPicker(ModalScreen):
     def cancel(self) -> None:
         self.dismiss(None)
 
-class ContextMenuModal(ModalScreen):
-    """A minimal context menu for asset actions."""
-    BINDINGS = [Binding("escape", "dismiss(None)", "Close")]
-    
-    def __init__(self, actions: List[Tuple[str, str]], **kwargs):
+class ActionMenuOverlay(Vertical):
+    """An overlay for asset actions in the power column."""
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.actions = []
+
+    def compose(self) -> ComposeResult:
+        yield Label("ACTION MENU", classes="panel_title")
+        with Vertical(id="action-menu-content"):
+            pass
+        with Horizontal(id="modal-buttons"):
+            yield Button("BACK", id="btn-action-close", variant="error")
+
+    def set_actions(self, actions: List[Tuple[str, str]]) -> None:
         self.actions = actions
+        content = self.query_one("#action-menu-content", Vertical)
+        content.remove_children()
+        for label, action in self.actions:
+            content.mount(Button(label, id=f"ctx-{action}", variant="primary", classes="ctx-btn"))
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="context-menu"):
-            for label, action in self.actions:
-                yield Button(label, id=f"ctx-{action}", variant="primary", classes="ctx-btn")
+    @on(Button.Pressed)
+    def handle_action(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-action-close":
+            self.app.query_one(LibraryTab).show_inspector_tab("info")
+            return
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        action = event.button.id.replace("ctx-", "")
-        self.dismiss(action)
+        if event.button.id and event.button.id.startswith("ctx-"):
+            action = event.button.id.replace("ctx-", "")
+            lib_tab = self.app.query_one(LibraryTab)
 
-class CollectionManagerModal(ModalScreen):
-    """A modal for managing collections (albums/packs)."""
-    def __init__(self, asset_type: str, current_collection_id: Optional[str] = None, **kwargs):
+            if action == "preview": lib_tab.action_preview()
+            elif action == "make_beat": lib_tab.action_make_beat()
+            elif action == "make_sample": lib_tab.action_make_sample()
+            elif action == "downgrade": lib_tab.action_downgrade_beat()
+            elif action == "link_asset": lib_tab.action_link_asset()
+            elif action == "add_master": lib_tab.action_add_master()
+            elif action == "convert_mp3": lib_tab.action_convert_mp3()
+            elif action == "manage_collection": lib_tab.action_manage_collection()
+            elif action == "restore_trash": lib_tab.action_restore_trash()
+            elif action == "delete": lib_tab.action_delete_asset()
+class CollectionManagerOverlay(Vertical):
+    """An overlay for managing collections, placed in the power column."""
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.asset_type = asset_type
-        self.current_collection_id = current_collection_id
+        self.asset_type = "beat"
+        self.asset_ids = [] # Support multiple IDs
+        self.current_collection_id = None
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="col-manager-container"):
-            yield Label("COLLECTION MANAGER", classes="panel_title")
+        yield Label("COLLECTION MANAGER", classes="panel_title")
+        with Vertical(id="col-manager-content"):
+            yield Label("ASSIGN TO COLLECTION", classes="modal-section-title")
+            with Vertical(classes="form-section"):
+                yield Select([], id="col-select", prompt="Select Collection...")
+            yield Button("SAVE ASSIGNMENT", id="btn-col-assign", variant="success", classes="integrated-btn")
 
-            with Vertical(id="col-manager-content"):
-                yield Label("ASSIGN TO COLLECTION", classes="modal-section-title")
-                with Vertical(classes="form-section"):
-                    yield Select([], id="col-select", prompt="Select Collection...")
-                yield Button("SAVE ASSIGNMENT", id="btn-col-assign", variant="success", classes="integrated-btn")
-
-                yield Label("CREATE NEW COLLECTION", classes="modal-section-title")
-                with Vertical(classes="form-section"):
-                    yield Input(placeholder="Collection Name...", id="col-new-name")
-                yield Button("CREATE & ASSIGN", id="btn-col-create", variant="primary", classes="integrated-btn")
-
-            with Horizontal(id="modal-buttons"):
-                yield Button("CLOSE", id="btn-col-close", variant="error")
-    def on_mount(self) -> None:
-        self.refresh_collections()
+            yield Label("CREATE NEW COLLECTION", classes="modal-section-title")
+            with Vertical(classes="form-section"):
+                yield Input(placeholder="Collection Name...", id="col-new-name")
+            yield Button("CREATE & ASSIGN", id="btn-col-create", variant="primary", classes="integrated-btn")
+        
+        with Horizontal(id="modal-buttons"):
+            yield Button("BACK TO INFO", id="btn-col-close", variant="error")
 
     def refresh_collections(self) -> None:
         from app.models.schemas import CollectionType
@@ -130,6 +150,8 @@ class CollectionManagerModal(ModalScreen):
         options = [("None / Unassigned", "none")] + [(c['name'], c['id']) for c in cols]
         select = self.query_one("#col-select", Select)
         select.set_options(options)
+        
+        # Force a refresh of the select to ensure it shows the value
         if self.current_collection_id:
             select.value = self.current_collection_id
         else:
@@ -139,7 +161,18 @@ class CollectionManagerModal(ModalScreen):
     def handle_assign(self) -> None:
         val = self.query_one("#col-select", Select).value
         if val == "none": val = None
-        self.dismiss(val)
+        
+        success_count = 0
+        for asset_id in self.asset_ids:
+            if self.app.library_engine.assign_to_collection(asset_id, val, self.asset_type):
+                success_count += 1
+        
+        if success_count > 0:
+            self.app.notify(f"Assigned {success_count} assets to collection.")
+            self.app.query_one(LibraryTab).refresh_library()
+            self.app.query_one(LibraryTab).show_inspector_tab("info")
+        else:
+            self.app.notify("Assignment failed.", severity="error")
 
     @on(Button.Pressed, "#btn-col-create")
     def handle_create(self) -> None:
@@ -162,10 +195,11 @@ class CollectionManagerModal(ModalScreen):
         self.refresh_collections()
         self.query_one("#col-select", Select).value = new_col.id
         self.query_one("#col-new-name", Input).value = ""
+        # We don't auto-assign here for bulk to avoid confusion, user can click "SAVE ASSIGNMENT" now
 
     @on(Button.Pressed, "#btn-col-close")
-    def close_modal(self) -> None:
-        self.dismiss(False)
+    def close_overlay(self) -> None:
+        self.app.query_one(LibraryTab).show_inspector_tab("info")
 
 class ImportOverlay(Vertical):
     """A professional overlay for scanning and importing assets."""
@@ -263,7 +297,7 @@ class ImportOverlay(Vertical):
     @on(Button.Pressed, "#btn-import-close")
     def close_overlay(self) -> None:
         self.app.audio_engine.stop_preview()
-        self.add_class("hidden")
+        self.app.query_one(LibraryTab).show_inspector_tab("info")
         self.app.action_refresh_library()
 
     @on(Button.Pressed, "#btn-import-browse")
@@ -564,56 +598,92 @@ class LibraryTab(Vertical):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="library-header"):
+            with Horizontal(id="lib-header-row-2"):
+                yield Tabs(
+                    Tab("ALL", id="tab-all"),
+                    Tab("BEATS", id="tab-beat"),
+                    Tab("SAMPLES", id="tab-sample"),
+                    Tab("RAW", id="tab-raw"),
+                    Tab("IMAGES", id="tab-cover"),
+                    id="lib-asset-tabs"
+                )
+                
             with Horizontal(id="lib-header-row-1"):
                 yield Input(placeholder="Search assets...", id="lib-filter-search")
-                
-                yield Button("📥", id="btn-header-import", classes="header-icon-btn", tooltip="Import [^I]")
-                yield Button("📤", id="btn-header-export", classes="header-icon-btn", tooltip="Export [E]")
-                yield Button("📂", id="btn-header-move", classes="header-icon-btn", tooltip="Move [V]")
-                yield Button("🔄", id="btn-header-sync", classes="header-icon-btn", tooltip="Sync [F5]")
-                yield Button("🧹", id="btn-header-empty-trash", classes="header-icon-btn", tooltip="Empty Trash")
+                yield Button("📥", id="btn-header-import", classes="header-icon-btn")
+                yield Button("📤", id="btn-header-export", classes="header-icon-btn")
+                yield Button("📂", id="btn-header-move", classes="header-icon-btn")
+                yield Button("🔄", id="btn-header-sync", classes="header-icon-btn")
+                yield Button("🧹", id="btn-header-empty-trash", classes="header-icon-btn")
                 yield Button("EDIT", id="btn-header-edit", classes="header-action-btn")
-            
-            yield Tabs(
-                Tab("ALL", id="tab-all"),
-                Tab("BEATS", id="tab-beat"),
-                Tab("SAMPLES", id="tab-sample"),
-                Tab("RAW", id="tab-raw"),
-                Tab("IMAGES", id="tab-cover"),
-                id="lib-asset-tabs"
-            )
         
         with Vertical(id="library-main-content"):
             with Horizontal(id="library-body-split"):
-                with Container(id="library-table-container"):
+                with Vertical(id="library-table-container"):
                     yield DataTable(id="library-table", cursor_type="row")
                     yield Input(id="inline-editor", classes="hidden")
+                    yield Player(id="library-player")
                 with Vertical(id="library-inspector"):
-                    yield Label("ASSET INFO", classes="panel_title")
-                    with TabbedContent(id="inspector-tabs"):
-                        with TabPane("NOTES", id="tab-notes"):
-                            yield TextArea(id="inspector-notes")
-                        with TabPane("METADATA", id="tab-metadata"):
-                            with VerticalScroll():
-                                with Grid(id="meta-grid"):
-                                    yield Label("Genre")
-                                    yield Input(id="meta-genre")
-                                    yield Label("Mood")
-                                    yield Input(id="meta-mood")
-                                    yield Label("Key")
-                                    yield Input(id="meta-key")
-                                    yield Label("BPM")
-                                    yield Input(id="meta-bpm")
-                    yield Button("SAVE", id="btn-inspector-save", variant="success")
-            yield Player(id="library-player")
+                    with Vertical(id="inspector-info-view"):
+                        yield Label("ASSET INFO", classes="panel_title")
+                        with TabbedContent(id="inspector-tabs"):
+                            with TabPane("NOTES", id="tab-notes"):
+                                yield TextArea(id="inspector-notes")
+                            with TabPane("METADATA", id="tab-metadata"):
+                                with VerticalScroll():
+                                    with Grid(id="meta-grid"):
+                                        yield Label("Genre")
+                                        yield Input(id="meta-genre")
+                                        yield Label("Mood")
+                                        yield Input(id="meta-mood")
+                                        yield Label("Key")
+                                        yield Input(id="meta-key")
+                                        yield Label("BPM")
+                                        yield Input(id="meta-bpm")
+                        yield Button("SAVE", id="btn-inspector-save", variant="success")
+                    yield CollectionManagerOverlay(id="inspector-col-view", classes="hidden")
+                    yield ImportOverlay(id="inspector-import-view", classes="hidden")
+                    yield ActionMenuOverlay(id="inspector-action-view", classes="hidden")
+
+    def show_inspector_tab(self, view: str) -> None:
+        info_view = self.query_one("#inspector-info-view")
+        col_view = self.query_one("#inspector-col-view")
+        import_view = self.query_one("#inspector-import-view")
+        action_view = self.query_one("#inspector-action-view")
+        
+        # Hide all first
+        for v in [info_view, col_view, import_view, action_view]:
+            v.add_class("hidden")
+            
+        if view == "info":
+            info_view.remove_class("hidden")
+        elif view == "collection":
+            col_view.remove_class("hidden")
+            col_view.refresh_collections()
+        elif view == "import":
+            import_view.remove_class("hidden")
+        elif view == "action":
+            action_view.remove_class("hidden")
 
     def on_mount(self) -> None:
         table = self.query_one("#library-table", DataTable)
         table.selected_rows = set()
-        table.add_columns(" ", "ID", "NAME", "COLLECTION", "TYPE", "DATA", "BPM", "KEY", "DURATION")
+        
+        # Add columns with specific initial widths; DataTable columns are resizable by default in modern Textual
+        table.add_column(" ", width=3)
+        table.add_column("ID", width=10)
+        table.add_column("NAME", width=20) # Much shorter initial width
+        table.add_column("COLLECTION", width=15)
+        table.add_column("TYPE", width=10)
+        table.add_column("DATA", width=10)
+        table.add_column("BPM", width=6)
+        table.add_column("KEY", width=6)
+        table.add_column("DURATION", width=10)
+        
         self.library_engine = LibraryManagerEngine()
         self.populate_inspector(None)
         self.refresh_library()
+        self.show_inspector_tab("info")
 
     @on(Input.Submitted, "#inline-editor")
     def handle_inline_edit_submit(self, event: Input.Submitted) -> None:
@@ -650,7 +720,7 @@ class LibraryTab(Vertical):
     def watch_asset_type_filter(self, val: str) -> None:
         self.refresh_library()
 
-    def refresh_library(self, search: str | None = None, type_filter: str | None = None) -> None:
+    def refresh_library(self, search: str | None = None, type_filter: str | None = None, force: bool = False) -> None:
         try:
             table = self.query_one("#library-table", DataTable)
             if search is None:
@@ -658,16 +728,26 @@ class LibraryTab(Vertical):
                 type_filter = self.asset_type_filter
             
             all_assets = self.library_engine.get_assets()
-            self.assets = [
+            new_assets = [
                 a for a in all_assets 
                 if (type_filter == "all" or a.get('asset_type', a.get('type', 'raw')) == type_filter) 
                 and (not search or search.lower() in a.get('name', '').lower())
             ]
             
+            # Optimization: Only rebuild if assets changed or forced
+            current_ids = [str(a.get('id')) for a in getattr(self, 'assets', [])]
+            new_ids = [str(a.get('id')) for a in new_assets]
+            
+            if not force and current_ids == new_ids and not self.currently_playing_id:
+                # Still check markers in case selection changed externally
+                return
+
+            self.assets = new_assets
+            
             # Save cursor state
             old_cursor_row = table.cursor_row
             
-            table.clear()
+            table.clear(columns=False)
             seen_ids = set()
             selected_ids = getattr(table, "selected_rows", set())
             
@@ -689,6 +769,8 @@ class LibraryTab(Vertical):
                         col_name = col_obj.get('name', 'Unassigned')
 
                 try:
+                    # Use a prefixed key to avoid collisions with any internal Textual keys
+                    row_key = f"row_{asset_id}"
                     table.add_row(
                         marker,
                         asset_id,
@@ -699,38 +781,21 @@ class LibraryTab(Vertical):
                         str(a.get('bpm', '') or ""),
                         str(a.get('key', '') or ""),
                         f"{a.get('duration', 0):.1f}s" if a.get('duration') else "N/A",
-                        key=asset_id
+                        key=row_key
                     )
                 except Exception as e:
-                    # Log but continue to show other assets
-                    with open("crash.log", "a") as f:
-                        f.write(f"Failed to add row {asset_id}: {str(e)}\n")
                     continue
                 
             # Restore cursor state
-            playing_index = None
-            if self.currently_playing_id:
-                for i, a in enumerate(self.assets):
-                    if str(a.get('id')) == self.currently_playing_id:
-                        playing_index = i
-                        break
-            
-            try:
-                if playing_index is not None:
-                    table.cursor_coordinate = Coordinate(playing_index, 0)
-                elif old_cursor_row is not None and len(self.assets) > 0:
+            if old_cursor_row is not None and len(self.assets) > 0:
+                try:
                     table.cursor_coordinate = Coordinate(min(old_cursor_row, len(self.assets) - 1), 0)
-            except: pass
+                except: pass
             
             if len(self.assets) == 0:
                 self.populate_inspector(None)
         except Exception as e:
-            import traceback
-            with open("crash.log", "a") as f:
-                f.write(f"\n[{datetime.now().isoformat()}] UI REFRESH ERROR: {str(e)}\n{traceback.format_exc()}\n")
-            # Notification might fail if app is not fully ready, but try anyway
-            try: self.app.notify(f"UI Error: {str(e)}", severity="error")
-            except: pass
+            pass
 
     @on(Button.Pressed, "#btn-header-import")
     def handle_header_import(self) -> None: self.app.action_toggle_import()
@@ -770,22 +835,9 @@ class LibraryTab(Vertical):
             ("DELETE [DEL]", "delete")
         ]
         
-        def on_action_selected(action: str | None) -> None:
-            if not action: return
-            
-            if action == "preview": self.action_preview()
-            elif action == "make_beat": self.action_make_beat()
-            elif action == "make_sample": self.action_make_sample()
-            elif action == "downgrade": self.action_downgrade_beat()
-            elif action == "link_asset": self.action_link_asset()
-            elif action == "add_master": self.action_add_master()
-            elif action == "convert_mp3": self.action_convert_mp3()
-            elif action == "manage_collection": self.action_manage_collection()
-            elif action == "restore_trash": self.action_restore_trash()
-            elif action == "delete": self.action_delete_asset()
-
-        self.app.push_screen(ContextMenuModal(actions), on_action_selected)
-
+        action_view = self.query_one("#inspector-action-view", ActionMenuOverlay)
+        action_view.set_actions(actions)
+        self.show_inspector_tab("action")
     @on(events.MouseDown, "#library-table")
     def handle_right_click(self, event: events.MouseDown) -> None:
         if event.button == 3: # Right click
@@ -793,21 +845,29 @@ class LibraryTab(Vertical):
 
     @on(Input.Changed, "#lib-filter-search")
     def handle_filters_changed(self) -> None:
-        self.refresh_library()
+        # Debounce search
+        if hasattr(self, "_search_timer"):
+            self._search_timer.stop()
+        self._search_timer = self.set_timer(0.3, self.refresh_library)
 
     @on(Tabs.TabActivated, "#lib-asset-tabs")
     def handle_asset_tab_changed(self, event: Tabs.TabActivated) -> None:
         if event.tab:
-            self.asset_type_filter = str(event.tab.id).replace("tab-", "")
+            new_filter = str(event.tab.id).replace("tab-", "")
+            if new_filter != self.asset_type_filter:
+                self.asset_type_filter = new_filter
+                # Force refresh on tab change
+                self.refresh_library(force=True)
 
     @on(DataTable.RowSelected, "#library-table")
     def handle_row_selected(self, event: DataTable.RowSelected) -> None:
-        row_key = event.row_key
-        asset_id = str(self.query_one("#library-table").get_row(row_key)[1])
+        row_key = event.row_key.value
+        asset_id = str(row_key).replace("row_", "")
         self.populate_inspector(asset_id)
         
     def populate_inspector(self, asset_id: str | None) -> None:
-        inspector = self.query_one("#library-inspector")
+        self.show_inspector_tab("info")
+        inspector = self.query_one("#inspector-info-view")
         notes_area = self.query_one("#inspector-notes", TextArea)
         
         if not asset_id:
@@ -852,8 +912,8 @@ class LibraryTab(Vertical):
                         meta.update(loaded_meta)
                 except: pass
                     
-        self.query_one("#meta-genre", Input).value = meta.get("genre", "")
-        self.query_one("#meta-mood", Input).value = meta.get("mood", "")
+        self.query_one("#meta-genre", Input).value = str(meta.get("genre", ""))
+        self.query_one("#meta-mood", Input).value = str(meta.get("mood", ""))
         
         self.query_one("#meta-key", Input).value = str(meta.get("key", asset.get("key", "")))
         self.query_one("#meta-bpm", Input).value = str(meta.get("bpm", asset.get("bpm", "")))
@@ -862,7 +922,7 @@ class LibraryTab(Vertical):
 
     @on(Button.Pressed, "#btn-inspector-save")
     def handle_inspector_save(self) -> None:
-        inspector = self.query_one("#library-inspector")
+        inspector = self.query_one("#inspector-info-view")
         if not hasattr(inspector, 'asset_id'): return
         
         asset_id = inspector.asset_id
@@ -940,7 +1000,7 @@ class LibraryTab(Vertical):
             row_keys = list(table.rows.keys())
             if table.cursor_row >= len(row_keys): return
             row_key = row_keys[table.cursor_row]
-            asset_id = str(table.get_row(row_key)[1])
+            asset_id = str(row_key.value).replace("row_", "")
             
             if not hasattr(table, "selected_rows"): table.selected_rows = set()
 
@@ -1123,26 +1183,24 @@ class LibraryTab(Vertical):
 
     def action_manage_collection(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("Select an asset to manage its collection", severity="warning")
+        if not ids: return self.app.notify("Select assets to manage their collection", severity="warning")
         
-        asset_id = ids[0]
-        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
-        if not asset: return
+        # Determine shared type and current collection
+        assets = [a for a in self.library_engine.get_assets() if str(a.get('id')) in ids]
+        if not assets: return
         
-        a_type = asset.get('asset_type', asset.get('type', 'raw'))
+        # Use type of first selected
+        a_type = assets[0].get('asset_type', assets[0].get('type', 'raw'))
         if a_type not in ['beat', 'sample']:
             return self.app.notify("Collections only apply to Beats and Samples.", severity="warning")
             
-        def on_dismiss(collection_id: str | bool | None) -> None:
-            if collection_id is not False: # False means "Close" without action
-                # collection_id could be None (Unassigned) or a string ID
-                if self.library_engine.assign_to_collection(asset_id, collection_id, a_type):
-                    self.app.notify("Collection assigned and files moved.")
-                    self.refresh_library()
-                else:
-                    self.app.notify("Assignment failed.", severity="error")
-                    
-        self.app.push_screen(CollectionManagerModal(asset_type=a_type, current_collection_id=asset.get('collection_id')), on_dismiss)
+        col_view = self.query_one("#inspector-col-view")
+        col_view.asset_ids = ids
+        col_view.asset_type = a_type
+        # If single item, show its current collection
+        col_view.current_collection_id = assets[0].get('collection_id') if len(ids) == 1 else None
+        
+        self.show_inspector_tab("collection")
 
     def action_restore_trash(self) -> None:
         ids = self._get_selected_ids()
@@ -1213,7 +1271,7 @@ class LibraryTab(Vertical):
                 if table.cursor_row >= len(row_keys): return
                 row_key = row_keys[table.cursor_row]
                 row_data = table.get_row(row_key)
-                asset_id = str(row_data[1])
+                asset_id = str(row_key.value).replace("row_", "")
                 asset = next((a for a in self.assets if str(a.get('id')) == asset_id), None)
                 if not asset: return
 
@@ -1256,7 +1314,7 @@ class LibraryTab(Vertical):
         table = self.query_one("#library-table", DataTable)
         if not hasattr(table, "selected_rows"): table.selected_rows = set()
         for row_key in table.rows: 
-            asset_id = str(table.get_row(row_key)[1])
+            asset_id = str(row_key.value).replace("row_", "")
             table.selected_rows.add(asset_id)
             table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
         self.app.notify("All items selected.")
@@ -1389,13 +1447,23 @@ class BeatManagerApp(App):
         with TabbedContent(id="main-tabs"):
             with TabPane("LIBRARY", id="pane-library"): yield LibraryTab()
             with TabPane("YOUTUBE", id="pane-youtube"): yield YoutubeTab()
-        yield ImportOverlay(id="import-overlay", classes="hidden")
         with Horizontal(id="footer-bar"):
             yield Button("IMPORT [Ctrl+I]", id="btn-toggle-import")
             yield Footer()
 
-    def action_toggle_import(self) -> None: self.show_import = not self.show_import
-    def watch_show_import(self, show: bool) -> None: self.query_one("#import-overlay").set_class(not show, "hidden")
+    def action_toggle_import(self) -> None:
+        try:
+            lib_tab = self.query_one(LibraryTab)
+            # If already on import, go back to info, otherwise show import
+            current_import = lib_tab.query_one("#inspector-import-view")
+            if not current_import.has_class("hidden"):
+                lib_tab.show_inspector_tab("info")
+            else:
+                lib_tab.show_inspector_tab("import")
+        except: pass
+
+    def watch_show_import(self, show: bool) -> None:
+        pass # reactive no longer needed for global overlay
     @on(Button.Pressed, "#btn-toggle-import")
     def handle_toggle_import(self) -> None: self.action_toggle_import()
 

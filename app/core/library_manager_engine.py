@@ -33,7 +33,13 @@ class LibraryManagerEngine:
             os.makedirs(d, exist_ok=True)
 
     def _sanitize_filename(self, name: str) -> str:
-        return "".join([c if c.isalnum() or c in (' ', '.', '_', '-') else '_' for c in name]).strip().replace(' ', '_')
+        import re
+        # Replace non-alphanumeric (except . - _) with _
+        s = re.sub(r'[^a-zA-Z0-9\.\-_]', '_', name)
+        # Replace multiple underscores with one
+        s = re.sub(r'_+', '_', s)
+        # Remove leading/trailing underscores
+        return s.strip('_')
 
     def _get_collection_name(self, collection_id: Optional[str]) -> str:
         if not collection_id:
@@ -171,7 +177,19 @@ class LibraryManagerEngine:
         if not collection_id:
             col_name = "Unassigned"
             
-        beat_path = os.path.join(self.beats_dir, col_name, asset_id)
+        safe_beat_name = self._sanitize_filename(name)
+        # Folder name: BeatName_ID
+        folder_name = f"{safe_beat_name}_{asset_id}"
+        beat_path = os.path.join(self.beats_dir, col_name, folder_name)
+        
+        # No need for extensive collision handling if ID is unique, but safety first
+        if os.path.exists(beat_path):
+            count = 1
+            while os.path.exists(f"{beat_path}_{count}"):
+                count += 1
+            beat_path = f"{beat_path}_{count}"
+            folder_name = os.path.basename(beat_path)
+
         os.makedirs(beat_path, exist_ok=True)
 
         # Create nested structure
@@ -183,8 +201,8 @@ class LibraryManagerEngine:
         # Move audio files into RAW subdirectory
         old_audio_path = audio_doc['path']
         audio_ext = os.path.splitext(old_audio_path)[1]
-        safe_beat_name = self._sanitize_filename(name)
-        new_audio_filename = f"raw-{safe_beat_name}{audio_ext}"
+        # New convention: BeatName_raw.ext
+        new_audio_filename = f"{safe_beat_name}_raw{audio_ext}"
         new_audio_path = os.path.join(beat_path, raw_dir, new_audio_filename)
         shutil.move(old_audio_path, new_audio_path)
 
@@ -502,6 +520,46 @@ class LibraryManagerEngine:
                 "path": new_path,
                 "audio_file": new_audio_filename,
                 "notes_file": new_notes_filename
+            }, Query().id == asset_id)
+            
+        elif asset_type == AssetType.BEAT or asset_type == 'beat':
+            # Rename beat folder and raw file
+            old_path = asset_doc.get('path')
+            if not old_path or not os.path.exists(old_path):
+                 self.assets_table.update({"name": new_name}, Query().id == asset_id)
+                 return True
+            
+            parent_dir = os.path.dirname(old_path)
+            new_beat_path = os.path.join(parent_dir, f"{safe_new_name}_{asset_id}")
+            
+            # Handle directory collision (though unlikely with ID)
+            if os.path.exists(new_beat_path) and new_beat_path != old_path:
+                 count = 1
+                 while os.path.exists(f"{new_beat_path}_{count}"):
+                      count += 1
+                 new_beat_path = f"{new_beat_path}_{count}"
+
+            if old_path != new_beat_path:
+                os.rename(old_path, new_beat_path)
+            
+            # Rename raw audio file inside RAW/
+            versions = asset_doc.get('versions', {})
+            main_rel_path = versions.get('main')
+            if main_rel_path:
+                old_raw_path = os.path.join(new_beat_path, main_rel_path)
+                if os.path.exists(old_raw_path):
+                    raw_dir = asset_doc.get('raw_dir', 'RAW')
+                    ext = os.path.splitext(main_rel_path)[1]
+                    new_raw_filename = f"{safe_new_name}_raw{ext}"
+                    new_raw_path = os.path.join(new_beat_path, raw_dir, new_raw_filename)
+                    if old_raw_path != new_raw_path:
+                        os.rename(old_raw_path, new_raw_path)
+                    versions['main'] = os.path.join(raw_dir, new_raw_filename)
+
+            self.assets_table.update({
+                "name": new_name,
+                "path": new_beat_path,
+                "versions": versions
             }, Query().id == asset_id)
             
         else:
