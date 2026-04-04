@@ -751,6 +751,9 @@ class LibraryTab(Vertical):
             seen_ids = set()
             selected_ids = getattr(table, "selected_rows", set())
             
+            # Pre-fetch collections mapping to avoid O(N) database queries
+            collections = {c.get('id'): c.get('name', 'Unassigned') for c in self.library_engine.state_manager.collections_table.all()}
+            
             for a in self.assets:
                 asset_id = str(a.get('id'))
                 if not asset_id or asset_id in seen_ids:
@@ -762,11 +765,7 @@ class LibraryTab(Vertical):
                 display_name = f"[bold green]▶ {raw_name}[/bold green]" if asset_id == self.currently_playing_id else raw_name
                 
                 col_id = a.get('collection_id')
-                col_name = "Unassigned"
-                if col_id:
-                    col_obj = self.library_engine.state_manager.collections_table.get(Query().id == col_id)
-                    if col_obj:
-                        col_name = col_obj.get('name', 'Unassigned')
+                col_name = collections.get(col_id, "Unassigned") if col_id else "Unassigned"
 
                 try:
                     # Use a prefixed key to avoid collisions with any internal Textual keys
