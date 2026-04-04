@@ -8,7 +8,7 @@ import mutagen
 from app.core.state_manager import StateManager
 from app.models.schemas import (
     LibraryAsset, AssetDataType, AssetType, 
-    AudioAsset, BeatAsset, ImageAsset
+    AudioAsset, BeatAsset, ImageAsset, SampleAsset
 )
 
 # Project paths
@@ -26,13 +26,30 @@ class LibraryManagerEngine:
         # Ensure subdirectories exist
         self.audio_dir = os.path.join(self.library_root, "audio")
         self.beats_dir = os.path.join(self.library_root, "beats")
+        self.samples_dir = os.path.join(self.library_root, "samples")
         self.image_dir = os.path.join(self.library_root, "images")
         self.trash_dir = os.path.join(self.library_root, "trash")
-        for d in [self.audio_dir, self.beats_dir, self.image_dir, self.trash_dir]:
+        for d in [self.audio_dir, self.beats_dir, self.samples_dir, self.image_dir, self.trash_dir]:
             os.makedirs(d, exist_ok=True)
 
     def _sanitize_filename(self, name: str) -> str:
         return "".join([c if c.isalnum() or c in (' ', '.', '_', '-') else '_' for c in name]).strip().replace(' ', '_')
+
+    def _get_collection_name(self, collection_id: Optional[str]) -> str:
+        if not collection_id:
+            return "Unassigned"
+        col = self.state_manager.collections_table.get(Query().id == collection_id)
+        if col:
+            return self._sanitize_filename(col.get('name', 'Unassigned'))
+        return "Unassigned"
+
+    def create_collection_folder(self, collection_name: str, asset_type: str) -> str:
+        """Ensures the physical directory for a collection exists and returns its path."""
+        safe_name = self._sanitize_filename(collection_name)
+        base_dir = self.beats_dir if asset_type == 'beat' else self.samples_dir
+        col_path = os.path.join(base_dir, safe_name)
+        os.makedirs(col_path, exist_ok=True)
+        return col_path
 
     def get_assets(self, data_type: Optional[AssetDataType] = None, asset_type: Optional[AssetType] = None) -> List[Dict[str, Any]]:
         q = Query()
@@ -136,7 +153,7 @@ class LibraryManagerEngine:
         """Links an image asset as the cover for a beat asset."""
         self.assets_table.update({"cover_image_id": image_id}, Query().id == beat_id)
 
-    def create_beat_from_audio(self, audio_asset_id: str, beat_name: Optional[str] = None) -> BeatAsset:
+    def create_beat_from_audio(self, audio_asset_id: str, beat_name: Optional[str] = None, collection_id: Optional[str] = None) -> BeatAsset:
         """Convert a raw audio asset into a structured BEAT asset folder."""
         audio_doc = self.assets_table.get(doc_id=int(audio_asset_id) if isinstance(audio_asset_id, int) or audio_asset_id.isdigit() else 0)
         # Fallback search if doc_id fails
@@ -148,7 +165,13 @@ class LibraryManagerEngine:
 
         name = beat_name or audio_doc['name']
         asset_id = str(uuid.uuid4())[:8]
-        beat_path = os.path.join(self.beats_dir, asset_id)
+        
+        # We always put new beats in the Unassigned directory unless it's part of a specific collection
+        col_name = self._get_collection_name(collection_id)
+        if not collection_id:
+            col_name = "Unassigned"
+            
+        beat_path = os.path.join(self.beats_dir, col_name, asset_id)
         os.makedirs(beat_path, exist_ok=True)
 
         # Create nested structure
@@ -194,7 +217,9 @@ class LibraryManagerEngine:
             key=audio_doc.get('key'),
             raw_dir=raw_dir,
             release_dir=release_dir,
-            metadata=audio_doc.get('metadata', {})
+            metadata=audio_doc.get('metadata', {}),
+            collection_id=collection_id,
+            compilation="Unassigned" if not collection_id else col_name
         )
 
         # Remove old raw audio entry and insert new beat entry
@@ -202,9 +227,125 @@ class LibraryManagerEngine:
             self.assets_table.remove(doc_ids=[audio_doc.doc_id])
         else:
             self.assets_table.remove(Query().id == audio_doc['id'])
-            
         self.assets_table.insert(beat.dict())
         return beat
+
+    def create_sample_from_audio(self, audio_asset_id: str, sample_name: Optional[str] = None, collection_id: Optional[str] = None) -> SampleAsset:
+        """Convert a raw audio asset into a structured SAMPLE asset folder."""
+        audio_doc = self.assets_table.get(doc_id=int(audio_asset_id) if isinstance(audio_asset_id, int) or audio_asset_id.isdigit() else 0)
+        if not audio_doc:
+            audio_doc = self.assets_table.get(Query().id == audio_asset_id)
+
+        if not audio_doc or audio_doc.get('asset_type') != AssetType.RAW:
+            raise ValueError("Valid raw audio asset required to create a sample.")
+
+        name = sample_name or audio_doc['name']
+        asset_id = str(uuid.uuid4())[:8]
+
+        col_name = self._get_collection_name(collection_id)
+        col_dir = os.path.join(self.samples_dir, col_name)
+        os.makedirs(col_dir, exist_ok=True)
+
+        # Move audio file into collection folder
+        old_audio_path = audio_doc['path']
+        audio_ext = os.path.splitext(old_audio_path)[1]
+        safe_sample_name = self._sanitize_filename(name)
+        new_audio_filename = f"sample-{safe_sample_name}-{asset_id}{audio_ext}"
+        new_audio_path = os.path.join(col_dir, new_audio_filename)
+        shutil.move(old_audio_path, new_audio_path)
+
+        sample = SampleAsset(
+            id=asset_id,
+            name=name,
+            path=new_audio_path,
+            duration=audio_doc.get('duration'),
+            bpm=audio_doc.get('bpm'),
+            key=audio_doc.get('key'),
+            collection_id=collection_id
+        )
+
+        # Remove old raw audio entry and insert new sample entry
+        if hasattr(audio_doc, 'doc_id'):
+            self.assets_table.remove(doc_ids=[audio_doc.doc_id])
+        else:
+            self.assets_table.remove(Query().id == audio_doc['id'])
+        self.assets_table.insert(sample.dict())
+        return sample
+
+    def import_sample(self, name: str, source_path: str, collection_id: Optional[str] = None, delete_source: bool = False, **kwargs) -> SampleAsset:
+        """Import a sample into the collection-based sample folder."""
+        from app.models.schemas import SampleAsset
+        col_name = self._get_collection_name(collection_id)
+        col_dir = os.path.join(self.samples_dir, col_name)
+        os.makedirs(col_dir, exist_ok=True)
+        
+        asset_id = str(uuid.uuid4())[:8]
+        ext = os.path.splitext(source_path)[1]
+        safe_name = self._sanitize_filename(name)
+        dest_filename = f"{safe_name}-{asset_id}{ext}"
+        dest_path = os.path.join(col_dir, dest_filename)
+        
+        shutil.copy2(source_path, dest_path)
+        
+        # Metadata extraction
+        duration = 0
+        try:
+            audio = mutagen.File(dest_path)
+            if audio and hasattr(audio.info, 'length'):
+                duration = audio.info.length
+        except:
+            pass
+            
+        sample = SampleAsset(
+            id=asset_id,
+            name=name,
+            path=dest_path,
+            collection_id=collection_id,
+            duration=duration,
+            **kwargs
+        )
+        
+        self.assets_table.insert(sample.dict())
+        
+        if delete_source:
+            try: os.remove(source_path)
+            except: pass
+            
+        return sample
+
+    def assign_to_collection(self, asset_id: str, collection_id: Optional[str], asset_type: str) -> bool:
+        """Safely moves an asset to a new collection folder and updates the state."""
+        asset = self.assets_table.get(Query().id == asset_id)
+        if not asset:
+            return False
+            
+        old_path = asset['path']
+        if not os.path.exists(old_path):
+            return False
+            
+        new_col_name = self._get_collection_name(collection_id)
+        base_dir = self.beats_dir if asset_type == 'beat' else self.samples_dir
+        
+        # Determine new path
+        new_parent_dir = os.path.join(base_dir, new_col_name)
+        os.makedirs(new_parent_dir, exist_ok=True)
+        new_path = os.path.join(new_parent_dir, os.path.basename(old_path))
+            
+        if old_path == new_path:
+            # Update state anyway in case collection_id changed but resulted in same path (e.g. both None)
+            self.assets_table.update({"collection_id": collection_id}, Query().id == asset_id)
+            return True
+            
+        # Move physical file/folder
+        shutil.move(old_path, new_path)
+        
+        # Update state
+        self.assets_table.update({
+            "path": new_path,
+            "collection_id": collection_id
+        }, Query().id == asset_id)
+        
+        return True
 
     def downgrade_beat_to_raw(self, beat_id: str) -> AudioAsset:
         """Convert a structured BEAT asset back into a raw audio asset."""
@@ -372,15 +513,14 @@ class LibraryManagerEngine:
         """Update arbitrary metadata fields (like bpm, key) for an asset."""
         asset = self.assets_table.get(Query().id == asset_id)
         if not asset: return False
-        
+
         # Prevent modifying core fields via this method
-        safe_updates = {k: v for k, v in updates.items() if k not in ('id', 'path', 'asset_type', 'data_type', 'created_at')}
-        
+        safe_updates = {k: v for k, v in updates.items() if k not in ('id', 'asset_type', 'data_type', 'created_at')}
+
         if safe_updates:
             self.assets_table.update(safe_updates, Query().id == asset_id)
             return True
         return False
-
     def delete_asset(self, asset_id: str) -> bool:
         """Safely deletes an asset and its physical files."""
         try:

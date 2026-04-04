@@ -22,6 +22,20 @@ class AssetType(str, Enum):
     COVER = "cover"
     PROJECT = "project"
 
+class CollectionType(str, Enum):
+    BEAT = "beat"
+    SAMPLE = "sample"
+
+class SampleType(str, Enum):
+    LOOP = "loop"
+    ONE_SHOT = "one-shot"
+
+class Collection(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the collection")
+    name: str = Field(..., description="Name of the collection")
+    type: CollectionType = Field(..., description="Type of collection (beat or sample)")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+
 class LibraryAsset(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the asset")
     data_type: AssetDataType = Field(..., description="The primitive data type")
@@ -31,6 +45,7 @@ class LibraryAsset(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the asset")
     in_trash: bool = Field(default=False, description="Whether the asset is currently in the trash")
+    collection_id: Optional[str] = Field(None, description="ID of the collection this asset belongs to")
 
 class AudioAsset(LibraryAsset):
     data_type: AssetDataType = AssetDataType.AUDIO
@@ -120,3 +135,12 @@ class YTUploadAsset(BaseModel):
     status: str = Field(default="draft", description="Status: draft, queued, uploaded, error")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     youtube_id: Optional[str] = Field(None, description="YouTube Video ID once uploaded")
+
+class SampleAsset(LibraryAsset):
+    data_type: AssetDataType = AssetDataType.AUDIO
+    asset_type: AssetType = AssetType.SAMPLE
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    sample_type: SampleType = Field(default=SampleType.ONE_SHOT, description="Type of sample (loop or one-shot)")
+    duration: Optional[float] = None
+

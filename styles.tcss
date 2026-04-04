@@ -147,6 +147,10 @@ Button.-variant-error {
     border-top: tall $border;
 }
 
+.hidden {
+    display: none !important;
+}
+
 #queue-panel.hidden {
     display: none;
 }
@@ -161,6 +165,33 @@ Button.-variant-error {
 }
 
 /* Library Layout */
+LibraryTab {
+    height: 1fr;
+}
+
+#lib-header-row-2 {
+    height: 3;
+    padding: 0 1;
+    align: left middle;
+}
+
+#lib-file-dropdown, #lib-edit-dropdown {
+    width: 18;
+    border: none;
+    background: #282c42;
+    margin-right: 1;
+}
+
+#lib-file-dropdown:hover, #lib-edit-dropdown:hover {
+    background: $highlight 20%;
+}
+
+#lib-file-dropdown > .select--button, #lib-edit-dropdown > .select--button {
+    border: none;
+    text-style: bold;
+    color: $text;
+}
+
 #library-header {
     height: auto;
     background: $panel-bg;
@@ -187,33 +218,115 @@ Button.-variant-error {
     margin-right: 1;
 }
 
+/* Library Header Styling - Minimal Single-Row Style */
+#library-header {
+    height: auto;
+    background: $bg;
+    border-bottom: tall $border;
+    padding: 1 1 0 1;
+}
+
+#lib-header-row-1 {
+    height: 1;
+    margin-bottom: 1;
+    align: left middle;
+}
+
 #lib-filter-search {
     width: 1fr;
     height: 1;
+    border: none;
+    background: $primary 10%;
     margin-right: 1;
-    border: none;
-    background: $bg 50%;
 }
 
-#lib-filter-type {
-    width: 20;
+.header-icon-btn {
+    width: 4;
     height: 1;
+    margin: 0;
+    margin-right: 1;
+    padding: 0;
     border: none;
-    background: $bg 50%;
+    background: $primary 15%;
+    color: $text;
+    min-width: 4;
 }
 
-#lib-file-dropdown, #lib-edit-dropdown {
+.header-icon-btn:hover {
+    background: $highlight 30%;
+    color: $highlight;
+}
+
+.header-action-btn {
+    width: 8;
+    height: 1;
+    margin: 0;
+    margin-right: 1;
+    padding: 0;
+    border: none;
+    background: $primary 20%;
+    color: $primary;
+}
+
+.header-action-btn:hover {
+    background: $highlight 30%;
+    color: $highlight;
+    text-style: bold;
+}
+
+/* Context Menu Modal - Positioned Dropdown Style */
+ContextMenuModal {
+    align: right top;
+    background: transparent;
+}
+
+#context-menu {
+    width: 24;
+    height: auto;
+    background: $panel-bg;
+    border: tall $highlight;
+    padding: 0;
+    margin-top: 2;
+    margin-right: 1;
+}
+
+.ctx-btn {
     width: 1fr;
     height: 1;
-    margin-right: 1;
+    margin: 0;
     border: none;
-    background: $bg 50%;
+    background: $primary 10%;
+    color: $text;
+    text-align: left;
+    padding-left: 2;
+}
+
+.ctx-btn:hover {
+    background: $highlight 30%;
+    color: $highlight;
+    text-style: bold;
+}
+
+.ctx-btn:focus {
+    background: $highlight 20%;
+    color: $highlight;
+}
+
+#lib-asset-tabs {
+    background: $bg;
+    border-top: tall $border;
+    border-bottom: none;
+    height: 3;
+    width: 100%;
+    margin: 0;
 }
 
 #library-main-content {
+    height: 1fr;
+    width: 100%;
     margin: 0;
-    border: none;
-    background: $panel-bg;
+    padding: 0;
+    background: $bg;
 }
 
 #library-body-split {
@@ -370,75 +483,216 @@ DataTable > .datatable--cursor {
     display: none;
 }
 
-/* Overlay & Modals */
-ModalScreen {
-    background: #000000 70%;
+/* Collection Manager */
+CollectionManagerModal {
     align: center middle;
+}
+
+#col-manager-container {
+    width: 60;
+    height: auto;
+    background: $panel-bg;
+    border: tall $border;
+    padding: 0;
+}
+
+#col-manager-container .panel_title {
+    background: $border;
+    color: $highlight;
+    margin: 0;
+    padding: 0 1;
+    height: 1;
+}
+
+#col-manager-content {
+    padding: 1 2;
+    background: $bg;
+}
+
+.modal-section-title {
+    color: $highlight;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.integrated-btn {
+    height: 1;
+    margin: 1 0;
+    border: none;
+    background: $primary 10%;
+}
+
+.integrated-btn:hover {
+    background: $highlight 20%;
+    color: $highlight;
+}
+
+/* Modal Content Wrapper */
+.modal-content {
+    width: 60;
+    background: $panel-bg;
+    border: tall $border;
+    padding: 0;
+}
+
+#modal-buttons {
+    height: 1;
+    background: $border;
+    padding: 0;
+}
+
+#modal-buttons Button {
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+#modal-buttons Button:hover {
+    background: $highlight 20%;
+}
+
+#modal-buttons Button.-variant-error { color: $error; }
+
+/* Rich Terminal Style Form Sections */
+.form-section {
+    border: none;
+    background: transparent;
+    margin-bottom: 1;
+    padding: 0;
+}
+
+.form-section Input, .form-section Select {
+    border: none;
+    background: $panel-bg 50%;
+    height: 1;
+    margin: 0;
+}
+
+.form-section Input:focus, .form-section Select:focus {
+    background: $highlight 10%;
 }
 
 #import-overlay {
     height: 85%;
-    width: 95%;
+    width: 90%;
     background: $panel-bg;
     border: tall $border;
     padding: 0;
     layer: top;
-    margin-bottom: 2;
+    offset: 5% 7%;
 }
 
 #import-overlay.hidden {
     display: none;
 }
 
-#import-toolbar {
-    height: 5;
-    background: $panel-bg;
-    border-bottom: tall $border;
-    padding: 0 2;
-    align: left middle;
+#import-overlay .panel_title {
+    background: $border;
+    color: $highlight;
+    margin: 0;
+    padding: 0 1;
+    height: 1;
 }
 
-#import-title {
+#import-config {
+    height: auto;
+    padding: 1 2;
+    background: $bg;
+    border-bottom: tall $border;
+}
+
+#import-grid {
+    grid-size: 2;
+    grid-columns: 10 1fr;
+    grid-rows: auto;
+    height: auto;
+    margin-bottom: 0;
+}
+
+#import-grid Label {
+    height: 1;
+    content-align: left middle;
     color: $highlight;
     text-style: bold;
-    margin-right: 2;
-    width: auto;
+}
+
+#import-path-row, #import-opts-row {
+    height: 1;
+    align: left middle;
 }
 
 #import-search-path {
     width: 1fr;
-    height: 3;
+    height: 1;
+    border: none;
     margin: 0;
+    background: $panel-bg 50%;
 }
 
-#import-toolbar Button {
-    width: auto;
-    min-width: 8;
-    height: 3;
-    margin-left: 1;
+#btn-import-browse {
+    width: 4;
+    height: 1;
+    margin: 0 0 0 1;
+    padding: 0;
+    border: none;
+    background: $highlight 20%;
+    color: $highlight;
 }
 
-#import-toolbar Checkbox {
-    width: auto;
-    min-width: 12;
-    height: 3;
-    margin-left: 1;
+#btn-import-browse:hover {
+    background: $highlight 40%;
+}
+
+#import-opts-row Checkbox {
+    margin-right: 2;
+    min-width: 20;
+    height: 1;
+}
+
+#btn-import-scan {
+    margin: 1 0 0 0;
+    height: 1;
+    border: none;
+    background: $highlight 20%;
+    color: $highlight;
+}
+
+#btn-import-scan:hover {
+    background: $highlight 40%;
+    text-style: bold;
+}
+
+#import-results-table {
+    height: 1fr;
+    border: none;
 }
 
 #import-footer {
-    height: 5;
-    background: $panel-bg;
-    border-top: tall $border;
-    padding: 0 2;
-    align: right middle;
+    height: 1;
+    background: $border;
+    padding: 0;
 }
 
 #import-footer Button {
-    width: auto;
-    min-width: 14;
-    height: 3;
-    margin-left: 1;
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
 }
+
+#import-footer Button:hover {
+    background: $highlight 20%;
+}
+
+#import-footer Button.-variant-success { color: $success; }
+#import-footer Button.-variant-error { color: $error; }
+#import-footer Button.-variant-warning { color: $warning; }
+#import-footer Button.-variant-primary { color: $highlight; }
 
 /* Checkbox fix */
 Checkbox {
@@ -452,58 +706,133 @@ Checkbox:focus {
     color: $highlight;
 }
 
+#trash-list-container {
+    height: 1fr;
+    border: none;
+    background: $bg;
+    padding: 1;
+}
+
+#trash-list {
+    background: transparent;
+    border: none;
+}
+
+ListItem {
+    background: transparent;
+    padding: 0 1;
+}
+
+ListItem:hover {
+    background: $highlight 10%;
+}
+
+ListItem.-highlight {
+    background: $highlight 20%;
+    color: $highlight;
+    text-style: bold;
+}
+
 /* Path Picker Modal */
+PathPicker {
+    align: center middle;
+}
+
 #picker-container {
     width: 80;
-    height: 30;
+    height: 35;
     background: $panel-bg;
     border: tall $border;
-    padding: 1 2;
+    padding: 0;
+}
+
+#picker-container .panel_title {
+    background: $border;
+    color: $highlight;
+    margin: 0;
+    padding: 0 1;
+    height: 1;
 }
 
 #picker-tree {
     height: 1fr;
-    border: tall $border;
+    border: none;
     background: $bg;
-    margin: 1 0;
+    margin: 0;
 }
 
 #picker-buttons {
-    height: 3;
-    align: right middle;
+    height: 1;
+    background: $border;
+    padding: 0;
 }
 
 #picker-buttons Button {
-    width: 15;
-    margin-left: 1;
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
 }
 
+#picker-buttons Button:hover {
+    background: $highlight 20%;
+}
+
+#picker-buttons Button.-variant-success { color: $success; }
+#picker-buttons Button.-variant-error { color: $error; }
+
 /* Confirmation Modal */
+ConfirmModal {
+    align: center middle;
+}
+
 #confirm-container {
     width: 60;
     height: auto;
     background: $panel-bg;
-    border: tall $warning;
-    padding: 1 2;
-    align: center middle;
+    border: tall $border;
+    padding: 0;
+}
+
+#confirm-container .panel_title {
+    background: $border;
+    color: $highlight;
+    margin: 0;
+    padding: 0 1;
+    height: 1;
 }
 
 #confirm-message {
     width: 100%;
     content-align: center middle;
-    margin: 1 0;
+    margin: 2 0;
     text-align: center;
+    color: $text;
 }
 
 #confirm-buttons {
-    height: 3;
-    align: center middle;
+    height: 1;
+    background: $border;
+    padding: 0;
 }
 
 #confirm-buttons Button {
-    width: 20;
-    margin: 0 1;
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
 }
+
+#confirm-buttons Button:hover {
+    background: $highlight 20%;
+}
+
+#confirm-buttons Button.-variant-success { color: $success; }
+#confirm-buttons Button.-variant-error { color: $error; }
 
 /* Youtube Tab Layout */
 #yt-row {

@@ -15,6 +15,26 @@ class StateManager:
         self.settings_table = self.db.table('settings')
         self.folders_table = self.db.table('folders')
         self.yt_uploads_table = self.db.table('yt_uploads')
+        self.collections_table = self.db.table('collections')
+        self.samples_table = self.db.table('samples')
+
+    def add_collection(self, collection_data: dict):
+        return self.collections_table.insert(collection_data)
+
+    def get_collections(self):
+        return self.collections_table.all()
+
+    def get_collections_by_type(self, col_type: str):
+        return self.collections_table.search(Query().type == col_type)
+
+    def delete_collection(self, collection_id: str):
+        self.collections_table.remove(Query().id == collection_id)
+
+    def add_sample(self, sample_data: dict):
+        return self.samples_table.insert(sample_data)
+
+    def get_samples(self):
+        return self.samples_table.all()
 
     def add_folder(self, path):
         if not self.folders_table.search(Query().path == path):
