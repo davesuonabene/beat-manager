@@ -1,15 +1,10 @@
 import os
-import httpx
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
+from tinydb import Query as TinyQuery
 from app.models.schemas import BeatAsset, ImageAsset, LinkImageRequest, BeatPreparationResult, AssetDataType, AssetType
-
-# Attempt to import real engine.
-try:
-    from app.core.library_engine import LibraryManagerEngine
-    HAS_LIBRARY_ENGINE = True
-except ImportError:
-    HAS_LIBRARY_ENGINE = False
+from app.core.library_manager_engine import LibraryManagerEngine
+from app.core.state_manager import StateManager, STATE_JSON
 
 class LibraryRouter:
     """
@@ -17,33 +12,39 @@ class LibraryRouter:
     """
     def __init__(self):
         self.router = APIRouter(prefix="/library", tags=["Library"])
-        # Mock engine instance if real one is not available
-        self.engine = LibraryManagerEngine() if HAS_LIBRARY_ENGINE else MockLibraryEngine()
+        self.engine = LibraryManagerEngine()
+        self.state_manager = StateManager(STATE_JSON)
         self._setup_routes()
 
     def _setup_routes(self):
-        @self.router.get("/beats", response_model=List[BeatAsset])
+        @self.router.get("/beats")
         async def get_beats(unassigned_only: bool = Query(True)):
             try:
-                beats = self.engine.get_beats(unassigned_only=unassigned_only)
-                return beats
+                # Get all beats
+                assets = self.engine.get_assets(AssetDataType.AUDIO, AssetType.BEAT)
+                
+                if unassigned_only:
+                    # Filter out beats that already have a cover linked
+                    assets = [a for a in assets if not a.get("cover_image_id") and not a.get("linked_assets", {}).get("cover")]
+                
+                # Convert dicts from TinyDB into the expected schemas (or dict representations)
+                return assets
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
-        @self.router.get("/images", response_model=List[ImageAsset])
+        @self.router.get("/images")
         async def get_images():
             try:
-                images = self.engine.get_images()
-                return images
+                assets = self.engine.get_assets(AssetDataType.IMAGE, AssetType.COVER)
+                return assets
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.router.post("/beats/{beat_id}/link")
         async def link_cover_to_beat(beat_id: str, request: LinkImageRequest):
             try:
-                success = self.engine.set_beat_cover(beat_id, request.image_id)
-                if not success:
-                    raise HTTPException(status_code=404, detail="Beat or Image not found")
+                # Update the beat with the image ID
+                self.engine.set_beat_cover(beat_id, request.image_id)
                 return {"status": "success"}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
@@ -51,44 +52,65 @@ class LibraryRouter:
         @self.router.get("/beats/{beat_id}/payload", response_model=BeatPreparationResult)
         async def get_beat_payload(beat_id: str) -> BeatPreparationResult:
             try:
-                payload = self.engine.get_beat_payload(beat_id)
-                if not payload:
-                    raise HTTPException(status_code=404, detail="Beat not found or incomplete")
-                return payload
+                q = TinyQuery()
+                beat_data = self.engine.assets_table.get(q.id == beat_id)
+                if not beat_data:
+                    raise HTTPException(status_code=404, detail="Beat not found")
+                
+                # Get the image ID
+                image_id = beat_data.get("cover_image_id") or beat_data.get("linked_assets", {}).get("cover")
+                if not image_id:
+                    raise HTTPException(status_code=400, detail="Beat does not have a cover linked")
+
+                image_data = self.engine.assets_table.get(q.id == image_id)
+                if not image_data:
+                    raise HTTPException(status_code=404, detail="Linked cover image not found in database")
+                
+                # Resolve Absolute Paths
+                # The engine stores absolute paths in the 'path' field for raw assets, 
+                # or within the beat's directory structure for beats.
+                # The schema says 'path' is absolute path to the asset folder or file
+                beat_root = beat_data.get("path")
+                # Need to find the actual audio file. BeatAsset schema says versions['main'] might be used
+                versions = beat_data.get("versions", {})
+                main_audio = versions.get("main") or versions.get("master") or beat_data.get("name")
+                
+                if not beat_root or not main_audio:
+                    raise HTTPException(status_code=400, detail="Beat path or main audio file is missing")
+                
+                audio_path = os.path.join(beat_root, main_audio) if os.path.isdir(beat_root) else beat_root
+                if not os.path.exists(audio_path):
+                     # fallback
+                     audio_path = beat_root
+                
+                image_path = image_data.get("path")
+
+                # Get title defaults
+                defaults = self.state_manager.get_yt_defaults()
+                
+                # Apply metadata formatting
+                metadata = {
+                    "name": beat_data.get("name", "Untitled Beat"),
+                    "bpm": str(beat_data.get("bpm", "")),
+                    "key": str(beat_data.get("key", "")),
+                    "genre": str(beat_data.get("metadata", {}).get("genre", "")),
+                    "mood": str(beat_data.get("metadata", {}).get("mood", ""))
+                }
+
+                class SafeDict(dict):
+                    def __missing__(self, key):
+                        return '{' + key + '}'
+                
+                suggested_title = defaults.get("title_template", "{name} | {genre} Type Beat").format_map(SafeDict(metadata))
+
+                return BeatPreparationResult(
+                    beat_id=beat_id,
+                    audio_path=audio_path,
+                    image_path=image_path,
+                    suggested_title=suggested_title,
+                    is_ready_for_dispatch=True
+                )
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=500, detail=str(e))
-
-class MockLibraryEngine:
-    """Fallback mock engine for baseline."""
-    def get_beats(self, unassigned_only: bool) -> List[BeatAsset]:
-        return [
-            BeatAsset(
-                id="beat_1", 
-                data_type=AssetDataType.AUDIO,
-                asset_type=AssetType.BEAT,
-                path="/mock/audio/beat1.wav", 
-                name="beat1.wav", 
-                metadata={"suggested_title": "Dark Trap Beat"}
-            )
-        ]
-    def get_images(self) -> List[ImageAsset]:
-        return [
-            ImageAsset(
-                id="img_1", 
-                data_type=AssetDataType.IMAGE,
-                asset_type=AssetType.COVER,
-                path="/mock/img/cover1.jpg", 
-                name="cover1.jpg", 
-                metadata={"tags": ["dark", "trap"]}
-            )
-        ]
-    def set_beat_cover(self, beat_id: str, image_id: str) -> bool:
-        return True
-    def get_beat_payload(self, beat_id: str) -> BeatPreparationResult:
-        return BeatPreparationResult(
-            beat_id=beat_id,
-            audio_path=f"/mock/audio/{beat_id}.wav",
-            image_path="/mock/img/linked_cover.jpg",
-            suggested_title="Dark Trap Beat",
-            is_ready_for_dispatch=True
-        )
