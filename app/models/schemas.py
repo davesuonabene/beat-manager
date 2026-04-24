@@ -144,3 +144,13 @@ class SampleAsset(LibraryAsset):
     sample_type: SampleType = Field(default=SampleType.ONE_SHOT, description="Type of sample (loop or one-shot)")
     duration: Optional[float] = None
 
+class LinkImageRequest(BaseModel):
+    image_id: str
+
+class BeatPreparationResult(BaseModel):
+    beat_id: str
+    audio_path: str
+    image_path: str
+    suggested_title: str
+    is_ready_for_dispatch: bool
+
