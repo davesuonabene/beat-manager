@@ -69,6 +69,61 @@ class YouTubeEngine:
         # For a CLI/TUI, run_local_server is usually best.
         return flow.run_local_server(port=0)
 
+    def get_live_channel_videos(self, channel_id="default_channel", max_results=10):
+        """
+        Fetches the latest videos uploaded to the user's YouTube channel.
+        :param channel_id: A unique identifier for the channel (used to name the token file).
+        :param max_results: Maximum number of videos to fetch.
+        :return: A list of dictionaries with title, videoId, and publishedAt.
+        """
+        try:
+            creds = self._get_credentials(channel_id)
+            youtube = build("youtube", "v3", credentials=creds)
+            
+            # Optimization: Cache the uploads playlist ID to save 1 quota unit per call
+            if not hasattr(self, "_uploads_cache"):
+                self._uploads_cache = {}
+            
+            uploads_playlist_id = self._uploads_cache.get(channel_id)
+
+            if not uploads_playlist_id:
+                # 1. Get the uploads playlist ID for the authenticated user's channel (Costs 1 unit)
+                channels_response = youtube.channels().list(
+                    part="contentDetails",
+                    mine=True
+                ).execute()
+                
+                if not channels_response.get("items"):
+                    logger.warning(f"No channel found for {channel_id}")
+                    return []
+                
+                uploads_playlist_id = channels_response["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+                self._uploads_cache[channel_id] = uploads_playlist_id
+            
+            # 2. List the items in the uploads playlist (Costs 1 unit)
+            playlist_response = youtube.playlistItems().list(
+                part="snippet",
+                playlistId=uploads_playlist_id,
+                maxResults=max_results
+            ).execute()
+            
+            videos = []
+            for item in playlist_response.get("items", []):
+                snippet = item["snippet"]
+                videos.append({
+                    "title": snippet.get("title", "No Title"),
+                    "videoId": snippet.get("resourceId", {}).get("videoId", "N/A"),
+                    "publishedAt": snippet.get("publishedAt", "N/A")
+                })
+            return videos
+            
+        except HttpError as e:
+            logger.error(f"YouTube API HttpError: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error fetching live channel videos: {e}")
+            return []
+
     def upload_video(self, channel_id: str, config: UploadConfig) -> TaskResult:
         """
         Uploads a video to YouTube using the provided configuration.

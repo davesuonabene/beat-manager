@@ -835,6 +835,11 @@ ConfirmModal {
 #yt-left {
     width: 1fr;
     border-right: tall $border;
+    layout: vertical;
+}
+
+#yt-uploads-table, #yt-live-table {
+    height: 1fr;
 }
 
 #yt-right {
@@ -866,13 +871,13 @@ ConfirmModal {
     height: 1;
 }
 
-#yt-desc-container {
+.yt-desc-container {
     height: 8;
     margin: 0;
     padding: 0;
 }
 
-#yt-desc-container TextArea {
+.yt-desc-container TextArea {
     height: 7;
     border: none;
     background: $bg 50%;

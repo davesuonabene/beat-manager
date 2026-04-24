@@ -4,7 +4,7 @@ BeatManager is a professional "Type Beat" channel management system designed for
 
 ## 🏗️ Architecture
 
-BeatManager follows a **Modular Service-Oriented Architecture** with a decoupled **Worker-Queue** model.
+BeatManager follows a **Modular Service-Oriented Architecture** with a decoupled **Worker-Queue** model, now upgraded to a robust **SQLite** backend.
 
 ### Project Structure
 ```text
@@ -13,7 +13,7 @@ beat-manager/
 │   ├── core/               # Low-level execution engines
 │   │   ├── video_engine.py    # FFmpeg-based video composition
 │   │   ├── youtube_engine.py  # Google API-based upload manager
-│   │   ├── state_manager.py   # TinyDB state & persistence layer
+│   │   ├── state_manager.py   # SQLite state & persistence layer (Migrated from TinyDB)
 │   │   └── audio_engine.py    # Audio metadata & asset indexing
 │   ├── models/             # Data schemas and types
 │   │   └── schemas.py         # Pydantic-based configuration models
@@ -25,16 +25,16 @@ beat-manager/
 ├── cli.py                  # Command-line interface
 ├── tui.py                  # Textual-based terminal dashboard
 ├── worker.py               # Background task processor
-└── state.json              # Centralized task database (TinyDB)
+└── state.db                # Centralized SQLite database (Concurrent-safe)
 ```
 
 ### Core Components
-1.  **State Layer (`state_manager.py`):** Centralized repository for tasks, settings, and asset folders using TinyDB.
+1.  **State Layer (`state_manager.py`):** Centralized repository using **SQLite**. Replaces the legacy TinyDB implementation to provide row-level locking and prevent data corruption during concurrent task execution.
 2.  **Execution Engines:**
     -   **Video Engine:** High-quality H.264 encoding via FFmpeg (1080p).
-    -   **YouTube Engine:** Secure OAuth2 uploads with scheduling support.
-    -   **Audio Engine:** Automated scanning and metadata extraction for samples.
-3.  **Dispatcher (`dispatcher.py`):** The bridge between interfaces and core logic. It manages task lifecycle (Pending -> Processing -> Finished/Error).
+    -   **YouTube Engine:** Secure OAuth2 uploads with scheduling and automated metadata mapping.
+    -   **Audio Engine:** Automated scanning and metadata extraction for Suno and local assets.
+3.  **Dispatcher (`dispatcher.py`):** The bridge between interfaces and core logic. Manages task lifecycle with improved concurrency handling.
 4.  **Strategy Manager (`strategy_manager.py`):** Automates the creation of weekly upload plans based on user-defined niches and preferences.
 
 ---
@@ -58,13 +58,13 @@ pip install -r requirements.txt
 ## 🛠️ Operating the System
 
 ### 1. The Dashboard (TUI)
-Manage assets, queue renders, and monitor activity in real-time:
+Manage assets, queue renders, and monitor activity in real-time. The TUI is optimized for the new SQLite backend:
 ```bash
 ./venv/bin/python3 tui.py
 ```
 
 ### 2. The Worker (Background Execution)
-The worker must be running to process the task queue.
+The worker processes the task queue. SQLite ensures the worker and TUI can interact with the state simultaneously.
 -   **Start:** `nohup ./venv/bin/python3 worker.py > worker.log 2>&1 &`
 -   **Stop:** `pkill -f worker.py`
 
@@ -72,15 +72,20 @@ The worker must be running to process the task queue.
 Direct access to engine functions:
 -   `python3 cli.py status`: View current task queue.
 -   `python3 cli.py render --audio <path> --image <path>`: Manual render.
--   `python3 cli.py strategy --compile`: Generate new tasks from the plan.
+-   `python3 cli.py upload --video <path> --title "..."`: Manual YouTube upload.
 
 ---
 
-## 📊 Project Status
+## 📊 Project Status & Achievements
 
--   **Phase:** Modular Refactor (Completed March 2026).
--   **Active:** Video Rendering, YouTube Uploading (Authenticated), Asset Management, Weekly Planning.
--   **In Development:** SEO Analytics Engine, Automated LLM-based Metadata Generation.
+### Recent Milestones
+-   **SQLite Migration:** Successfully migrated 2,400+ library assets from TinyDB to SQLite to support high-concurrency operations.
+-   **Project 'typebeatssuck':** Completed the first phase of automated YouTube publishing, including sequential rendering and scheduled uploading of experimental assets.
+-   **TUI Stability:** Refactored TUI engine initialization to prevent race conditions during startup.
+
+### In Development
+-   **SEO Analytics Engine:** Real-time tracking of YouTube performance data.
+-   **Automated LLM Metadata:** Integration with Gemini/GPT for context-aware titles and descriptions.
 
 ---
 

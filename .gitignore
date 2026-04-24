@@ -34,3 +34,6 @@ state.json.bak
 # OS specific
 .DS_Store
 Thumbs.db
+state.db
+*.log
+temp_videos/

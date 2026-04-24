@@ -4,6 +4,7 @@ import json
 import time
 import math
 import random
+import asyncio
 from datetime import datetime
 from typing import List, Tuple, Dict, Any
 from tinydb import Query
@@ -110,6 +111,7 @@ class ActionMenuOverlay(Vertical):
             lib_tab = self.app.query_one(LibraryTab)
 
             if action == "preview": lib_tab.action_preview()
+            elif action == "upload_yt": lib_tab.action_upload_yt()
             elif action == "make_beat": lib_tab.action_make_beat()
             elif action == "make_sample": lib_tab.action_make_sample()
             elif action == "downgrade": lib_tab.action_downgrade_beat()
@@ -680,9 +682,11 @@ class LibraryTab(Vertical):
         table.add_column("KEY", width=6)
         table.add_column("DURATION", width=10)
         
-        self.library_engine = LibraryManagerEngine()
+        # Ensure we use the SQLite DB path
+        db_path = os.path.join(BASE_DIR, "state.db")
+        self.app.library_engine = LibraryManagerEngine(db_path=db_path)
         self.populate_inspector(None)
-        self.refresh_library()
+        self.refresh_library(force=True)
         self.show_inspector_tab("info")
 
     @on(Input.Submitted, "#inline-editor")
@@ -692,10 +696,10 @@ class LibraryTab(Vertical):
         self.query_one("#library-table", DataTable).focus()
         if not self.editing_asset_id: return
         try:
-            if self.editing_field == "name": self.library_engine.rename_asset(self.editing_asset_id, new_val)
+            if self.editing_field == "name": self.app.library_engine.rename_asset(self.editing_asset_id, new_val)
             else:
                 val = float(new_val) if self.editing_field == "bpm" and new_val.strip() else new_val
-                self.library_engine.update_asset(self.editing_asset_id, {self.editing_field: val})
+                self.app.library_engine.update_asset(self.editing_asset_id, {self.editing_field: val})
             self.refresh_library()
         except: self.app.notify("Database update failed", severity="error")
         self.editing_asset_id = None
@@ -727,12 +731,22 @@ class LibraryTab(Vertical):
                 search = self.query_one("#lib-filter-search", Input).value
                 type_filter = self.asset_type_filter
             
-            all_assets = self.library_engine.get_assets()
-            new_assets = [
-                a for a in all_assets 
-                if (type_filter == "all" or a.get('asset_type', a.get('type', 'raw')) == type_filter) 
-                and (not search or search.lower() in a.get('name', '').lower())
-            ]
+            all_assets = self.app.library_engine.get_assets()
+            
+            new_assets = []
+            for a in all_assets:
+                # Get the effective asset type
+                a_type = a.get('asset_type', a.get('type', 'raw'))
+                
+                # Check filter
+                if type_filter != "all" and a_type != type_filter:
+                    continue
+                
+                # Check search
+                if search and search.lower() not in a.get('name', '').lower():
+                    continue
+                    
+                new_assets.append(a)
             
             # Optimization: Only rebuild if assets changed or forced
             current_ids = [str(a.get('id')) for a in getattr(self, 'assets', [])]
@@ -752,7 +766,7 @@ class LibraryTab(Vertical):
             selected_ids = getattr(table, "selected_rows", set())
             
             # Pre-fetch collections mapping to avoid O(N) database queries
-            collections = {c.get('id'): c.get('name', 'Unassigned') for c in self.library_engine.state_manager.collections_table.all()}
+            collections = {c.get('id'): c.get('name', 'Unassigned') for c in self.app.library_engine.state_manager.collections_table.all()}
             
             for a in self.assets:
                 asset_id = str(a.get('id'))
@@ -823,6 +837,7 @@ class LibraryTab(Vertical):
         
         actions = [
             ("PREVIEW [P]", "preview"),
+            ("UPLOAD TO YT [Y]", "upload_yt"),
             ("MAKE BEAT [B]", "make_beat"),
             ("MAKE SAMPLE [U]", "make_sample"),
             ("DOWNGRADE [D]", "downgrade"),
@@ -878,7 +893,7 @@ class LibraryTab(Vertical):
             if hasattr(inspector, 'asset_id'): del inspector.asset_id
             return
 
-        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+        asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
         if not asset:
             self.populate_inspector(None)
             return
@@ -888,7 +903,7 @@ class LibraryTab(Vertical):
         if asset.get('asset_type') == 'beat':
             notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
         elif asset.get('asset_type') == 'raw':
-            notes_path = os.path.join(self.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
+            notes_path = os.path.join(self.app.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
             
         if os.path.exists(notes_path):
             try:
@@ -925,7 +940,7 @@ class LibraryTab(Vertical):
         if not hasattr(inspector, 'asset_id'): return
         
         asset_id = inspector.asset_id
-        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+        asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
         if not asset: return
         
         # Save notes
@@ -934,7 +949,7 @@ class LibraryTab(Vertical):
         if asset.get('asset_type') == 'beat':
             notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
         elif asset.get('asset_type') == 'raw':
-            notes_path = os.path.join(self.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
+            notes_path = os.path.join(self.app.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
             
         if notes_path:
             try:
@@ -981,14 +996,14 @@ class LibraryTab(Vertical):
             update_payload = {"metadata": db_meta}
             if key: update_payload["key"] = key
             if bpm is not None: update_payload["bpm"] = bpm
-            self.library_engine.update_asset(asset_id, update_payload)
+            self.app.library_engine.update_asset(asset_id, update_payload)
         else:
             current_meta = asset.get('metadata', {})
             current_meta.update(meta_updates)
             update_payload = {"metadata": current_meta}
             if key: update_payload["key"] = key
             if bpm is not None: update_payload["bpm"] = bpm
-            self.library_engine.update_asset(asset_id, update_payload)
+            self.app.library_engine.update_asset(asset_id, update_payload)
             
         self.app.notify("Saved notes and metadata.", severity="information")
         self.refresh_library()
@@ -1032,7 +1047,7 @@ class LibraryTab(Vertical):
             if path:
                 count = 0
                 for beat_id in ids:
-                    if self.library_engine.add_master_version(beat_id, path):
+                    if self.app.library_engine.add_master_version(beat_id, path):
                         count += 1
                 if count > 0:
                     self.app.notify(f"Added master version to {count} beats.")
@@ -1047,7 +1062,7 @@ class LibraryTab(Vertical):
         count = 0
         for asset_id in ids:
             try:
-                if self.library_engine.generate_mp3_for_beat(asset_id):
+                if self.app.library_engine.generate_mp3_for_beat(asset_id):
                     count += 1
             except Exception as e:
                 self.app.notify(f"MP3 generation failed for {asset_id}: {str(e)}", severity="error")
@@ -1064,7 +1079,7 @@ class LibraryTab(Vertical):
             if path:
                 count = 0
                 for beat_id in ids:
-                    if self.library_engine.export_beat(beat_id, path):
+                    if self.app.library_engine.export_beat(beat_id, path):
                         count += 1
                 if count > 0:
                     self.app.notify(f"Exported {count} beats to {path}")
@@ -1082,7 +1097,7 @@ class LibraryTab(Vertical):
             if path:
                 count = 0
                 for beat_id in ids:
-                    if self.library_engine.move_beat(beat_id, path):
+                    if self.app.library_engine.move_beat(beat_id, path):
                         count += 1
                 if count > 0:
                     self.app.notify(f"Moved {count} assets.")
@@ -1099,7 +1114,7 @@ class LibraryTab(Vertical):
         asset_id = ids[0]
         asset = next((a for a in self.assets if str(a.get('id')) == asset_id), None)
         if not asset:
-            asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+            asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
 
         if asset:
             if asset.get('data_type') != 'audio':
@@ -1116,6 +1131,18 @@ class LibraryTab(Vertical):
             else: 
                 self.app.notify(f"File not found: {audio_path}", severity="error")
 
+    def action_upload_yt(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: return self.app.notify("Select an asset to upload", severity="warning")
+        
+        asset_id = ids[0]
+        # Switch to YouTube tab and apply templates
+        try:
+            self.app.query_one("#main-tabs").active = "pane-youtube"
+            self.app.query_one(YoutubeTab).apply_templates(asset_id)
+        except Exception as e:
+            self.app.notify(f"Could not switch to YouTube tab: {str(e)}", severity="error")
+
     def action_make_beat(self) -> None:
         ids = self._get_selected_ids()
         if not ids: return self.app.notify("No assets selected", severity="warning")
@@ -1126,7 +1153,7 @@ class LibraryTab(Vertical):
         count = 0
         for asset_id in ids:
             try:
-                self.library_engine.create_beat_from_audio(asset_id)
+                self.app.library_engine.create_beat_from_audio(asset_id)
                 count += 1
             except Exception as e:
                 self.app.notify(f"Beat creation failed for {asset_id}: {str(e)}", severity="error")
@@ -1145,7 +1172,7 @@ class LibraryTab(Vertical):
         count = 0
         for asset_id in ids:
             try:
-                self.library_engine.create_sample_from_audio(asset_id)
+                self.app.library_engine.create_sample_from_audio(asset_id)
                 count += 1
             except Exception as e:
                 self.app.notify(f"Sample creation failed for {asset_id}: {str(e)}", severity="error")
@@ -1164,7 +1191,7 @@ class LibraryTab(Vertical):
         count = 0
         for asset_id in ids:
             try:
-                self.library_engine.downgrade_beat_to_raw(asset_id)
+                self.app.library_engine.downgrade_beat_to_raw(asset_id)
                 count += 1
             except Exception as e:
                 self.app.notify(f"Downgrade failed for {asset_id}: {str(e)}", severity="error")
@@ -1176,7 +1203,7 @@ class LibraryTab(Vertical):
     def action_empty_trash(self) -> None:
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
-                count = self.library_engine.empty_trash()
+                count = self.app.library_engine.empty_trash()
                 self.app.notify(f"Trash emptied: {count} items removed.")
         self.app.push_screen(ConfirmModal("Are you sure? This will permanently delete all files in the trash."), on_confirm)
 
@@ -1185,7 +1212,7 @@ class LibraryTab(Vertical):
         if not ids: return self.app.notify("Select assets to manage their collection", severity="warning")
         
         # Determine shared type and current collection
-        assets = [a for a in self.library_engine.get_assets() if str(a.get('id')) in ids]
+        assets = [a for a in self.app.library_engine.get_assets() if str(a.get('id')) in ids]
         if not assets: return
         
         # Use type of first selected
@@ -1206,11 +1233,11 @@ class LibraryTab(Vertical):
         if not ids: return self.app.notify("Select a BEAT to restore to.", severity="warning")
         
         target_id = ids[0]
-        asset = next((a for a in self.library_engine.get_assets() if str(a.get('id')) == target_id), None)
+        asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == target_id), None)
         if not asset or asset.get('asset_type') != AssetType.BEAT:
             return self.app.notify("Please select a BEAT asset as the target.", severity="error")
             
-        trash_dir = self.library_engine.trash_dir
+        trash_dir = self.app.library_engine.trash_dir
         if not os.path.exists(trash_dir):
             return self.app.notify("Trash is empty.", severity="warning")
             
@@ -1221,7 +1248,7 @@ class LibraryTab(Vertical):
         def on_trash_selected(trash_name: str | None) -> None:
             if trash_name:
                 try:
-                    self.library_engine.restore_from_trash(trash_name, target_id)
+                    self.app.library_engine.restore_from_trash(trash_name, target_id)
                     self.app.notify(f"Restored beat state for {asset['name']}")
                     self.refresh_library()
                 except Exception as e:
@@ -1232,7 +1259,7 @@ class LibraryTab(Vertical):
 
     def action_link_asset(self) -> None:
         ids = self._get_selected_ids()
-        selected = [a for a in self.library_engine.get_assets() if str(a.get('id')) in ids]
+        selected = [a for a in self.app.library_engine.get_assets() if str(a.get('id')) in ids]
         beats = [a for a in selected if a.get('asset_type') == 'beat']
         others = [a for a in selected if a.get('asset_type') != 'beat']
         
@@ -1248,14 +1275,14 @@ class LibraryTab(Vertical):
             elif other.get('asset_type') == 'raw': role = "source"
             
             # Update linked_assets dict
-            beat_doc = next((a for a in self.library_engine.get_assets() if a['id'] == beat_id), None)
+            beat_doc = next((a for a in self.app.library_engine.get_assets() if a['id'] == beat_id), None)
             if beat_doc:
                 linked = beat_doc.get('linked_assets', {})
                 linked[role] = other['id']
                 updates = {'linked_assets': linked}
                 if role == "cover": updates['cover_image_id'] = other['id'] # Keep legacy field in sync
                 
-                if self.library_engine.update_asset(beat_id, updates):
+                if self.app.library_engine.update_asset(beat_id, updates):
                     linked_count += 1
         
         if linked_count > 0:
@@ -1297,14 +1324,14 @@ class LibraryTab(Vertical):
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
         deleted_count = 0
         for asset_id in ids:
-            if self.library_engine.delete_asset(asset_id): deleted_count += 1
+            if self.app.library_engine.delete_asset(asset_id): deleted_count += 1
         if deleted_count > 0:
             self.app.notify(f"Removed {deleted_count} assets from library.")
             self.refresh_library()
 
     def action_sync_library(self) -> None:
         self.app.notify("Synchronizing with disk...")
-        removed = self.library_engine.sync_library_with_disk()
+        removed = self.app.library_engine.sync_library_with_disk()
         if removed > 0: self.app.notify(f"Cleaned {removed} missing files.", severity="warning")
         else: self.app.notify("Library is synchronized.")
         self.refresh_library()
@@ -1331,64 +1358,166 @@ class LibraryTab(Vertical):
         self.currently_playing_id = None
         self.app.notify("Playback stopped.")
 
+class SafeDict(dict):
+    """A dictionary that returns the key in curly braces if it's missing, for safe .format()"""
+    def __missing__(self, key):
+        return '{' + key + '}'
+
 class YoutubeTab(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="yt-row"):
             with Vertical(id="yt-left"):
                 yield Label("UPLOAD HISTORY", classes="panel_title")
                 yield DataTable(id="yt-uploads-table", cursor_type="row")
+                yield Label("LIVE ON YOUTUBE", classes="panel_title")
+                yield DataTable(id="yt-live-table", cursor_type="row")
                 with Horizontal(id="yt-left-footer"):
                     yield Button("REFRESH", id="btn-yt-refresh")
                     yield Button("DELETE", id="btn-yt-delete", variant="error")
 
             with VerticalScroll(id="yt-right"):
-                yield Label("YOUTUBE PUBLISHING", classes="panel_title")
+                with TabbedContent(id="yt-right-tabs"):
+                    with TabPane("PUBLISHING", id="pane-yt-pub"):
+                        yield Label("YOUTUBE PUBLISHING", classes="panel_title")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Video", classes="menu-label")
-                    yield Input(placeholder="/path/to/video.mp4", id="yt-video", value=os.path.join(BASE_DIR, "output.mp4"))
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Video", classes="menu-label")
+                            yield Input(placeholder="/path/to/video.mp4", id="yt-video", value=os.path.join(BASE_DIR, "output.mp4"))
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Thumb", classes="menu-label")
-                    yield Input(placeholder="/path/to/thumb.jpg", id="yt-thumb")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Thumb", classes="menu-label")
+                            yield Input(placeholder="/path/to/thumb.jpg", id="yt-thumb")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Title", classes="menu-label")
-                    yield Input(placeholder="Enter title...", id="yt-title")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Title", classes="menu-label")
+                            yield Input(placeholder="Enter title...", id="yt-title")
 
-                with Vertical(id="yt-desc-container"):
-                    yield Label("Description", classes="menu-label")
-                    yield TextArea(id="yt-desc")
+                        with Vertical(id="yt-desc-container", classes="yt-desc-container"):
+                            yield Label("Description", classes="menu-label")
+                            yield TextArea(id="yt-desc")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Tags", classes="menu-label")
-                    yield Input(placeholder="music, beat, hiphop...", id="yt-tags")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Tags", classes="menu-label")
+                            yield Input(placeholder="music, beat, hiphop...", id="yt-tags")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Category", classes="menu-label")
-                    yield Select([("Music", "10"), ("Entertainment", "24")], id="yt-cat", value="10")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Category", classes="menu-label")
+                            yield Select([("Music", "10"), ("Entertainment", "24")], id="yt-cat", value="10")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Privacy", classes="menu-label")
-                    yield Select([("Private", "private"), ("Unlisted", "unlisted"), ("Public", "public")], id="yt-privacy", value="private")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Privacy", classes="menu-label")
+                            yield Select([("Private", "private"), ("Unlisted", "unlisted"), ("Public", "public")], id="yt-privacy", value="private")
 
-                with Horizontal(classes="yt-form-row"):
-                    yield Label("Schedule", classes="menu-label")
-                    yield Input(placeholder="2024-01-01T12:00:00Z", id="yt-schedule")
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Schedule", classes="menu-label")
+                            yield Input(placeholder="2024-01-01T12:00:00Z", id="yt-schedule")
 
-                with Horizontal(id="yt-right-footer"):
-                    yield Button("SAVE DRAFT", id="btn-yt-save-draft")
-                    yield Button("UPLOAD NOW", id="btn-yt-upload", variant="primary")
+                        with Horizontal(id="yt-right-footer"):
+                            yield Button("SAVE DRAFT", id="btn-yt-save-draft")
+                            yield Button("UPLOAD NOW", id="btn-yt-upload", variant="primary")
+                    
+                    with TabPane("DEFAULTS", id="pane-yt-defaults"):
+                        yield Label("YOUTUBE DEFAULTS & TEMPLATES", classes="panel_title")
+                        
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Title Tmpl", classes="menu-label")
+                            yield Input(placeholder="{name} | {genre} Type Beat", id="yt-def-title")
+                        
+                        with Vertical(id="yt-def-desc-container", classes="yt-desc-container"):
+                            yield Label("Desc Tmpl", classes="menu-label")
+                            yield TextArea(id="yt-def-desc")
+                        
+                        with Horizontal(classes="yt-form-row"):
+                            yield Label("Def Tags", classes="menu-label")
+                            yield Input(placeholder="music, beat, hiphop...", id="yt-def-tags")
+                        
+                        yield Button("SAVE DEFAULTS", id="btn-yt-save-defaults", variant="success")
+
     def on_mount(self) -> None:
         table = self.query_one("#yt-uploads-table", DataTable)
         table.add_columns("ID", "TITLE", "STATUS", "DATE")
+        
+        live_table = self.query_one("#yt-live-table", DataTable)
+        live_table.add_columns("TITLE", "VIDEO ID", "PUBLISHED")
+        
+        self._last_live_fetch = 0
         self.refresh_table()
+        self.fetch_live_videos()
+        self.load_defaults()
+
+    def load_defaults(self) -> None:
+        defaults = self.app.library_engine.state_manager.get_yt_defaults()
+        self.query_one("#yt-def-title", Input).value = defaults.get("title_template", "")
+        self.query_one("#yt-def-desc", TextArea).text = defaults.get("desc_template", "")
+        self.query_one("#yt-def-tags", Input).value = defaults.get("default_tags", "")
+
+    @on(Button.Pressed, "#btn-yt-save-defaults")
+    def save_defaults(self) -> None:
+        title = self.query_one("#yt-def-title", Input).value
+        desc = self.query_one("#yt-def-desc", TextArea).text
+        tags = self.query_one("#yt-def-tags", Input).value
+        self.app.library_engine.state_manager.set_yt_defaults(title, desc, tags)
+        self.app.notify("YouTube defaults saved.")
+
+    @work(exclusive=True)
+    async def fetch_live_videos(self, force: bool = False) -> None:
+        """Fetch live videos from YouTube API with quota optimization."""
+        now = time.time()
+        # Only fetch once every 5 minutes unless forced
+        if not force and (now - getattr(self, "_last_live_fetch", 0)) < 300:
+            return
+
+        try:
+            from app.core.youtube_engine import YouTubeEngine
+            # We assume YouTubeEngine is available through app or initialized here
+            yt_engine = YouTubeEngine(os.path.join(BASE_DIR, "client_secrets.json"))
+            # Use asyncio.to_thread for blocking call
+            videos = await asyncio.to_thread(yt_engine.get_live_channel_videos)
+            
+            if videos:
+                table = self.query_one("#yt-live-table", DataTable)
+                table.clear()
+                for v in videos:
+                    table.add_row(
+                        v.get('title', 'No Title'),
+                        v.get('videoId', 'N/A'),
+                        v.get('publishedAt', '')[:10]
+                    )
+                self._last_live_fetch = now
+        except Exception as e:
+            self.app.notify(f"Error fetching live videos: {str(e)}", severity="error")
+
+    def apply_templates(self, asset_id: str) -> None:
+        """Apply metadata templates to the publishing fields."""
+        try:
+            # Fetch asset metadata
+            asset = self.app.library_engine.get_asset(asset_id)
+            if not asset: return
+            
+            metadata = {
+                "name": asset.get("name", "N/A"),
+                "bpm": asset.get("bpm", "N/A"),
+                "key": asset.get("key", "N/A"),
+                "genre": asset.get("genre", "N/A"),
+                "mood": asset.get("mood", "N/A")
+            }
+            
+            defaults = self.app.library_engine.state_manager.get_yt_defaults()
+            safe_meta = SafeDict(metadata)
+            
+            self.query_one("#yt-title", Input).value = defaults.get("title_template", "").format_map(safe_meta)
+            self.query_one("#yt-desc", TextArea).text = defaults.get("desc_template", "").format_map(safe_meta)
+            self.query_one("#yt-tags", Input).value = defaults.get("default_tags", "")
+            
+            self.app.notify(f"Templates applied for {metadata['name']}")
+        except Exception as e:
+            self.app.notify(f"Template Error: {str(e)}", severity="error")
 
     def refresh_table(self) -> None:
         try:
             table = self.query_one("#yt-uploads-table", DataTable)
             table.clear()
-            uploads = StateManager(STATE_JSON).get_yt_uploads()
+            uploads = self.app.library_engine.state_manager.get_yt_uploads()
             for u in uploads:
                 table.add_row(
                     u.get('id', 'N/A'),
@@ -1402,6 +1531,7 @@ class YoutubeTab(Vertical):
     @on(Button.Pressed, "#btn-yt-refresh")
     def handle_refresh(self) -> None:
         self.refresh_table()
+        self.fetch_live_videos(force=True)
 
     @on(Button.Pressed, "#btn-yt-delete")
     def handle_delete(self) -> None:
@@ -1411,7 +1541,7 @@ class YoutubeTab(Vertical):
                 row_keys = list(table.rows.keys())
                 if table.cursor_row < len(row_keys):
                     upload_id = row_keys[table.cursor_row]
-                    StateManager(STATE_JSON).delete_yt_upload(upload_id)
+                    self.app.library_engine.state_manager.delete_yt_upload(upload_id)
                     self.refresh_table()
                     self.app.notify("Upload entry removed.")
         except: pass
@@ -1440,6 +1570,12 @@ class BeatManagerApp(App):
         )
         self.register_theme(theme)
         self.theme = "dolphie_theme"
+        
+        # Initialize engines
+        db_path = os.path.join(BASE_DIR, "state.db")
+        self.library_engine = LibraryManagerEngine(db_path=db_path)
+        self.audio_engine = AudioEngine()
+        self.dispatcher = TaskDispatcher(BASE_DIR)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1467,7 +1603,6 @@ class BeatManagerApp(App):
     def handle_toggle_import(self) -> None: self.action_toggle_import()
 
     def on_mount(self) -> None:
-        self.library_engine, self.audio_engine, self.dispatcher = LibraryManagerEngine(), AudioEngine(), TaskDispatcher(BASE_DIR)
         self.notify("System Online", title="BeatManager")
 
     def on_error(self, error: Exception) -> None:

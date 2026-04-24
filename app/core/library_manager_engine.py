@@ -18,8 +18,8 @@ STATE_JSON = os.path.join(project_root, "state.json")
 DEFAULT_LIBRARY_ROOT = os.path.join(project_root, "assets", "library")
 
 class LibraryManagerEngine:
-    def __init__(self, state_json: str = STATE_JSON, library_root: str = DEFAULT_LIBRARY_ROOT):
-        self.state_manager = StateManager(state_json)
+    def __init__(self, db_path: Optional[str] = None, library_root: str = DEFAULT_LIBRARY_ROOT):
+        self.state_manager = StateManager(db_path)
         self.library_root = library_root
         self.assets_table = self.state_manager.db.table('library_assets')
         
@@ -58,7 +58,6 @@ class LibraryManagerEngine:
         return col_path
 
     def get_assets(self, data_type: Optional[AssetDataType] = None, asset_type: Optional[AssetType] = None) -> List[Dict[str, Any]]:
-        q = Query()
         results = self.assets_table.all()
         if data_type:
             results = [r for r in results if r.get('data_type') == data_type.value]
