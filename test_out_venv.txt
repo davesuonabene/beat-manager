@@ -1,0 +1,108 @@
+[?1049h[?1000h[?1003h[?1015h[?1006h[?25l[?1004h[>1u[?2048$p[?2004h[?7l[?1000h[?1003h[?1015h[?1006h]22;default[?2004l[?7h[?1000l[?1003l[?1015l[?1006l[<u[?1049l[?25h[?1004l[?1000l[?1003l[?1015l[?1006l╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /home/dave/.openclaw/workspace/projects/beat-manager/tui.py:1456 in          │
+│ fetch_live_videos                                                            │
+│                                                                              │
+│   1453 │   │   │   # We assume YouTubeEngine is available through app or ini │
+│   1454 │   │   │   # In a real app, it might be better to have it as a singl │
+│   1455 │   │   │   yt_engine = YouTubeEngine(os.path.join(BASE_DIR, "client_ │
+│ ❱ 1456 │   │   │   videos = await self.app.run_worker(yt_engine.get_live_cha │
+│   1457 │   │   │                                                             │
+│   1458 │   │   │   table = self.query_one("#yt-live-table", DataTable)       │
+│   1459 │   │   │   table.clear()                                             │
+│                                                                              │
+│ ╭───────────────────────────────── locals ─────────────────────────────────╮ │
+│ │      self = YoutubeTab()                                                 │ │
+│ │ yt_engine = <app.core.youtube_engine.YouTubeEngine object at             │ │
+│ │             0x7fd35c1fb620>                                              │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+TypeError: 'Worker' object can't be awaited
+
+During handling of the above exception, another exception occurred:
+
+╭───────────────────── Traceback (most recent call last) ──────────────────────╮
+│ /home/dave/.openclaw/workspace/projects/beat-manager/venv/lib/python3.14/sit │
+│ e-packages/textual/worker.py:370 in _run                                     │
+│                                                                              │
+│   367 │   │   │   self.state = WorkerState.RUNNING                           │
+│   368 │   │   │   app.log.worker(self)                                       │
+│   369 │   │   │   try:                                                       │
+│ ❱ 370 │   │   │   │   self._result = await self.run()                        │
+│   371 │   │   │   except asyncio.CancelledError as error:                    │
+│   372 │   │   │   │   self.state = WorkerState.CANCELLED                     │
+│   373 │   │   │   │   self._error = error                                    │
+│                                                                              │
+│ ╭───────────────────────────────── locals ─────────────────────────────────╮ │
+│ │           app = BeatManagerApp(                                          │ │
+│ │                 │   title='BEAT MANAGER',                                │ │
+│ │                 │   classes={'-dark-mode'},                              │ │
+│ │                 │   pseudo_classes={'focus', 'dark'}                     │ │
+│ │                 )                                                        │ │
+│ │         error = TypeError("App.notify() got an unexpected keyword        │ │
+│ │                 argument 'variant'")                                     │ │
+│ │          self = <Worker                                                  │ │
+│ │                 │   ERROR                                                │ │
+│ │                 │   name='fetch_live_videos'                             │ │
+│ │                 │   description='fetch_live_videos()'                    │ │
+│ │                 >                                                        │ │
+│ │ worker_failed = WorkerFailed('Worker raised exception:                   │ │
+│ │                 TypeError("App.notify() got an unexpected keyword        │ │
+│ │                 argument \'variant\'")')                                 │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│                                                                              │
+│ /home/dave/.openclaw/workspace/projects/beat-manager/venv/lib/python3.14/sit │
+│ e-packages/textual/worker.py:354 in run                                      │
+│                                                                              │
+│   351 │   │   Returns:                                                       │
+│   352 │   │   │   Return value of the work.                                  │
+│   353 │   │   """                                                            │
+│ ❱ 354 │   │   return await (                                                 │
+│   355 │   │   │   self._run_threaded() if self._thread_worker else self._run │
+│   356 │   │   )                                                              │
+│   357                                                                        │
+│                                                                              │
+│ ╭─────────────────── locals ───────────────────╮                             │
+│ │ self = <Worker                               │                             │
+│ │        │   ERROR                             │                             │
+│ │        │   name='fetch_live_videos'          │                             │
+│ │        │   description='fetch_live_videos()' │                             │
+│ │        >                                     │                             │
+│ ╰──────────────────────────────────────────────╯                             │
+│                                                                              │
+│ /home/dave/.openclaw/workspace/projects/beat-manager/venv/lib/python3.14/sit │
+│ e-packages/textual/worker.py:339 in _run_async                               │
+│                                                                              │
+│   336 │   │   │   or hasattr(self._work, "func")                             │
+│   337 │   │   │   and inspect.iscoroutinefunction(self._work.func)           │
+│   338 │   │   ):                                                             │
+│ ❱ 339 │   │   │   return await self._work()                                  │
+│   340 │   │   elif inspect.isawaitable(self._work):                          │
+│   341 │   │   │   return await self._work                                    │
+│   342 │   │   elif callable(self._work):                                     │
+│                                                                              │
+│ ╭─────────────────── locals ───────────────────╮                             │
+│ │ self = <Worker                               │                             │
+│ │        │   ERROR                             │                             │
+│ │        │   name='fetch_live_videos'          │                             │
+│ │        │   description='fetch_live_videos()' │                             │
+│ │        >                                     │                             │
+│ ╰──────────────────────────────────────────────╯                             │
+│                                                                              │
+│ /home/dave/.openclaw/workspace/projects/beat-manager/tui.py:1467 in          │
+│ fetch_live_videos                                                            │
+│                                                                              │
+│   1464 │   │   │   │   │   v.get('publishedAt', '')[:10]                     │
+│   1465 │   │   │   │   )                                                     │
+│   1466 │   │   except Exception as e:                                        │
+│ ❱ 1467 │   │   │   self.app.notify(f"Error fetching live videos: {str(e)}",  │
+│   1468 │                                                                     │
+│   1469 │   def apply_templates(self, asset_id: str) -> None:                 │
+│   1470 │   │   """Apply metadata templates to the publishing fields."""      │
+│                                                                              │
+│ ╭───────────────────────────────── locals ─────────────────────────────────╮ │
+│ │      self = YoutubeTab()                                                 │ │
+│ │ yt_engine = <app.core.youtube_engine.YouTubeEngine object at             │ │
+│ │             0x7fd35c1fb620>                                              │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+╰──────────────────────────────────────────────────────────────────────────────╯
+TypeError: App.notify() got an unexpected keyword argument 'variant'

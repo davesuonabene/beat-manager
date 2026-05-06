@@ -92,4 +92,15 @@ Direct access to engine functions:
 ## 🖥️ System Integration (i3/Linux)
 -   **Shortcut:** `$mod+Ctrl+b` launches the TUI.
 -   **Status Bar:** Integrates with polybar/i3status for real-time monitoring.
--   **Autostart:** The worker is designed to run as a persistent background process.
+- **Autostart:** The worker is designed to run as a persistent background process.
+
+---
+
+## 🛠 Next Steps & Integration
+
+BeatManager is moving toward a role as an **agnostic publishing tool** for high-level orchestrators.
+
+*   **PydanticAI Routines**: Integration of PydanticAI to handle complex decision-making for rendering and YouTube metadata generation locally.
+*   **Agnostic Functions**: Exposing core rendering and upload flows as decoupled functions that can be called by external agents.
+*   **Mission Control Integration**: Chrono will act as the master **Mission Control**, wrapping BeatManager's functions into **Prefect tasks** to execute end-to-end beat selling strategies.
+
