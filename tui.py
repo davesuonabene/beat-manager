@@ -877,7 +877,10 @@ class LibraryTab(Vertical):
             
             # Load notes
             notes_path = resolved.get("notes")
-            if not notes_path or not os.path.exists(notes_path):
+            if notes_path and not os.path.exists(notes_path):
+                notes_path = None
+                
+            if not notes_path:
                 # Fallback to the main markdown file if no separate notes exist
                 notes_path = resolved.get("markdown")
 

@@ -323,8 +323,15 @@ class LibraryManagerEngine:
             "versions": [] # List of {"name": str, "path": str, "type": str}
         }
         
-        if asset.get('asset_type') in (AssetType.RAW, AssetType.BEAT, AssetType.SONG):
-            # All primary audio assets now have a primary MD file
+        if asset.get('asset_type') == AssetType.RAW:
+            # RAW assets are purely audio files now, no MD required
+            res["audio"] = asset['path']
+            res["versions"].append({"name": "Original (Raw)", "path": asset['path'], "type": "version"})
+            if asset.get('notes_file'):
+                res["notes"] = os.path.join(self.md_dir, asset['notes_file'])
+                
+        elif asset.get('asset_type') in (AssetType.BEAT, AssetType.SONG):
+            # Promoted audio assets use MD file as master
             md_path = asset['path']
             if not md_path.endswith(".md"):
                 md_filename = f"{self._sanitize_filename(asset['name'])}_{asset_id}.md"
@@ -731,23 +738,21 @@ class LibraryManagerEngine:
         if os.path.exists(self.audio_dir):
             for af in os.listdir(self.audio_dir):
                 if af.lower().endswith(audio_exts) and af not in audio_to_md_map:
-                    # Create new Raw entry
+                    # New unlinked raw audio - NO MD FILE CREATED
                     asset_id = str(uuid.uuid4())[:8]
+                    # Try to extract ID if it follows our Name_ID.wav convention
                     base_af = os.path.splitext(af)[0]
-                    clean_af_name = base_af
+                    if "_" in base_af:
+                        potential_id = base_af.split("_")[-1]
+                        if len(potential_id) == 8: asset_id = potential_id
                     
-                    md_filename = f"{self._sanitize_filename(clean_af_name)}_{asset_id}.md"
-                    target_md_path = os.path.join(self.md_dir, md_filename)
+                    clean_af_name = base_af.split("_" + asset_id)[0] if asset_id in base_af else base_af
                     
-                    with open(target_md_path, "w") as mf:
-                        mf.write(f"---\nid: {asset_id}\ntype: Raw\ntags: []\ncreated: {datetime.now().isoformat()}\n---\n\n")
-                        mf.write(f"# {clean_af_name}\n\n")
-                        mf.write(f"Audio: [[{af}]]\n")
-                    
+                    # Add to DB directly pointing to audio file
                     new_asset = {
                         "id": asset_id,
                         "name": clean_af_name,
-                        "path": target_md_path,
+                        "path": os.path.join(self.audio_dir, af),
                         "data_type": AssetDataType.AUDIO,
                         "asset_type": AssetType.RAW,
                         "created_at": datetime.now().isoformat(),

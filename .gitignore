@@ -5,36 +5,33 @@ __pycache__/
 venv/
 .env
 
-# Secrets
+# Secrets & Authentication
 client_secrets.json
 tokens/
 *.key
 *.pem
+oauth_creds.json
 
-# Project-specific data and temporary files
-temp_videos/
-assets/
-*.log
-*.bak
-upload_metadata.json
+# Data & Database
+state.db
+state.db-journal
+state.db.bak
 state.json
 state.json.bak
+upload_metadata.json
 
-# Media files
-*.mp3
-*.wav
-*.mp4
-*.mkv
-*.mov
-*.avi
-*.flac
-*.ogg
-*.aac
+# Large Assets & Workspace
+assets/library/audio/
+assets/library/stems/
+assets/library/image/
+assets/library/trash/
+temp_videos/
+*.log
+*.bak
+
+# Obsidian
+.obsidian/
 
 # OS specific
 .DS_Store
 Thumbs.db
-.obsidian/
-state.db
-*.log
-temp_videos/

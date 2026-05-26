@@ -1,75 +1,71 @@
 # BeatManager
 
-BeatManager is a professional "Type Beat" channel management system designed for high-performance video rendering, YouTube automation, and SEO-driven niche management. It features a modern TUI (Terminal User Interface) for management and a robust background worker for autonomous task execution.
+BeatManager is a professional "Type Beat" channel management system designed for high-performance video rendering, YouTube automation, and Obsidian-integrated asset management. It features a modern TUI (Terminal User Interface) and a robust multi-threaded background worker powered by HTDemucs.
 
 ## 🏗️ Architecture & Development
 
-BeatManager follows a **Modular Service-Oriented Architecture**. To maintain a robust system, follow the established patterns when adding features.
+BeatManager follows a **Modular Service-Oriented Architecture** with a **Markdown-Master** philosophy. Every audio asset is linked to a primary Markdown file in a unified library map.
 
 ### Project Structure
 ```text
 beat-manager/
 ├── app/
-│   ├── core/               # LOW-LEVEL: Pure logic engines. No business rules here.
+│   ├── core/               # ENGINE LAYER: Pure logic engines.
 │   │   ├── video_engine.py    # FFmpeg wrappers (Pure)
 │   │   ├── youtube_engine.py  # Google API calls (Pure)
-│   │   ├── state_manager.py   # SQLite abstractions (Persistence)
+│   │   ├── state_manager.py   # SQLite abstractions (Thread-safe)
 │   │   ├── audio_engine.py    # Metadata extraction (mutagen)
-│   │   └── library_manager_engine.py # Filesystem/DB sync for assets
+│   │   ├── stems_engine.py    # HTDemucs source separation
+│   │   └── library_manager_engine.py # Filesystem/Obsidian Sync
 │   ├── models/             # SCHEMAS: Type safety across the project.
 │   │   └── schemas.py         # Pydantic models for configs and assets
-│   └── services/           # HIGH-LEVEL: Business logic & Coordination.
+│   └── services/           # SERVICE LAYER: Business logic & Coordination.
 │       ├── dispatcher.py      # Main entry point for executing tasks
-│       └── strategy_manager.py# Planning, queueing, and scheduling
-├── data/                   # Strategy and Plan configurations (JSON)
-├── cli.py                  # CLI Interface (Target: 100% feature parity)
-├── tui.py                  # Terminal UI Dashboard (Textual)
-├── worker.py               # Background task processor
+│       └── strategy_manager.py# Planning and scheduling
+├── assets/library/         # CENTRAL REPOSITORY
+│   ├── audio/              # WAV/MP3 files (Originals/Raw)
+│   ├── md/                 # Markdown Master files (Obsidian Vault)
+│   └── stems/              # ST-prefixed separation folders
+├── cli.py                  # CLI Interface (Automation Engine)
+├── tui.py                  # Terminal UI Dashboard (Management)
 └── state.db                # Central SQLite state
 ```
 
-### How to Work on the Code
-1.  **Schema First**: If adding a new asset type or configuration, start in `app/models/schemas.py`.
-2.  **Engine Logic**: Put pure, stateless logic (like calling a new API or tool) in `app/core/`. Engines should not know about the TUI or CLI.
-3.  **Persistence**: Use `StateManager` in `app/core/state_manager.py` for all DB operations. Do not write raw SQL in other modules.
-4.  **Service Layer**: Use `TaskDispatcher` to coordinate multiple engines. This is where you handle task registration, status updates, and logging.
-5.  **Interface Parity**: Every feature added to the TUI **must** also be accessible via `cli.py`.
+### Development Principles
+1.  **Markdown-Master**: The database index is rebuilt from the `md/` folder. Every asset MUST have a corresponding `.md` file with YAML frontmatter.
+2.  **Thread Safety**: `StateManager` uses `check_same_thread=False` to allow concurrent TUI and background worker access.
+3.  **ST Naming**: Stems are stored in folders prefixed with `ST` + the parent Asset ID for instant discovery.
+4.  **Interface Parity**: Every engine feature must be exposed in both TUI and `cli.py`.
 
 ---
 
-## 🛠️ CLI Robustness & Parity
+## 🛠️ CLI & Robustness
 
-The CLI is designed to be the "Engine Room" of the project. Current focus is on making it 100% robust for automation.
+The CLI is the automation engine. It includes diagnostic tools to ensure the complex environment is always healthy.
 
-### Current CLI Features
--   `status`: Check the SQLite task queue.
--   `render`: Trigger immediate FFmpeg video composition.
--   `upload`: Push a video to YouTube with specified metadata.
--   `queue`: List or activate items from the weekly plan.
--   `process`: Run pending tasks manually (useful for debugging).
-
-### 🚀 Upcoming CLI Improvements (Roadmap)
--   [ ] **Asset Management**: Add `cli.py library list/tag/edit` to allow bulk metadata editing via CLI (matching new TUI features).
--   [ ] **Import/Export**: Add `cli.py import --path <dir>` to automate library expansion without the TUI.
--   [ ] **Dry Runs**: Implement `--dry-run` for `render` and `upload` to validate paths and credentials before execution.
--   [ ] **JSON Output**: Add `--json` flag to all commands for easier integration with external scripts (e.g., `jq`).
--   [ ] **Enhanced Logging**: Implement consistent verbosity levels (`-v`, `-vv`) across all commands.
--   [ ] **Health Checks**: Add `cli.py doctor` to verify FFmpeg installation, SQLite integrity, and YouTube API credentials.
+### Core Commands
+-   `python3 cli.py doctor`: Checks FFmpeg, Demucs, PyTorch, and DB integrity.
+-   `python3 cli.py stems --id <id>`: Manually trigger high-quality stem separation.
+-   `python3 cli.py render`: immediate FFmpeg video composition.
+-   `python3 cli.py status`: View the SQLite task queue.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
--   **FFmpeg**: Required for video rendering.
+-   **FFmpeg**: For video and audio processing.
 -   **Python 3.10+**
--   **Google Cloud Credentials**: `client_secrets.json` in the root for YouTube API access.
+-   **Torch & Torchcodec**: For AI-powered stems separation.
+-   **HTDemucs**: Installed within the local virtual environment.
 
 ### Installation
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+# Check your environment
+python3 cli.py doctor
 ```
 
 ---
@@ -77,49 +73,32 @@ pip install -r requirements.txt
 ## 🛠️ Operating the System
 
 ### 1. The Dashboard (TUI)
-Manage assets, queue renders, and monitor activity in real-time. The TUI is optimized for the new SQLite backend:
+Features **Multi-Version Selector** at the bottom right. Instantly switch between Raw audio, Mastered versions, and separated Stems during playback. Supports **Bulk Tagging** using the `*` placeholder logic.
 ```bash
 ./venv/bin/python3 tui.py
 ```
 
-### 2. The Worker (Background Execution)
-The worker processes the task queue. SQLite ensures the worker and TUI can interact with the state simultaneously.
+### 2. Obsidian Integration
+Point your Obsidian vault to `assets/library/`. The `md/` folder provides a complete, linked knowledge graph of your library with automatic `[[audio]]` back-links.
+
+### 3. Background Worker
+Processes heavy tasks like `RENDER` and `STEMS` without blocking the UI.
 -   **Start:** `nohup ./venv/bin/python3 worker.py > worker.log 2>&1 &`
--   **Stop:** `pkill -f worker.py`
-
-### 3. CLI Tool
-Direct access to engine functions:
--   `python3 cli.py status`: View current task queue.
--   `python3 cli.py render --audio <path> --image <path>`: Manual render.
--   `python3 cli.py upload --video <path> --title "..."`: Manual YouTube upload.
 
 ---
 
-## 📊 Project Status & Achievements
+## 📊 Achievements & Milestones
 
-### Recent Milestones
--   **SQLite Migration:** Successfully migrated 2,400+ library assets from TinyDB to SQLite to support high-concurrency operations.
--   **Project 'typebeatssuck':** Completed the first phase of automated YouTube publishing, including sequential rendering and scheduled uploading of experimental assets.
--   **TUI Stability:** Refactored TUI engine initialization to prevent race conditions during startup.
-
-### In Development
--   **SEO Analytics Engine:** Real-time tracking of YouTube performance data.
--   **Automated LLM Metadata:** Integration with Gemini/GPT for context-aware titles and descriptions.
+### 🏆 Milestone: Master Software Upgrade
+-   **HTDemucs Integration**: Seamlessly deconstruct any track into Vocals, Drums, Bass, and Other.
+-   **SONG Asset Type**: Dedicated workflow for full track management.
+-   **Tag-based Organization**: Full replacement of the legacy "Collection" system with high-speed tagging.
+-   **SQLite Concurrency**: Multi-threaded database access for simultaneous UI and processing.
+-   **Deep Library Sync**: Automatic 1:1 mapping of 2,400+ physical assets to Markdown files.
 
 ---
 
-## 🖥️ System Integration (i3/Linux)
--   **Shortcut:** `$mod+Ctrl+b` launches the TUI.
--   **Status Bar:** Integrates with polybar/i3status for real-time monitoring.
-- **Autostart:** The worker is designed to run as a persistent background process.
-
----
-
-## 🛠 Next Steps & Integration
-
-BeatManager is moving toward a role as an **agnostic publishing tool** for high-level orchestrators.
-
-*   **PydanticAI Routines**: Integration of PydanticAI to handle complex decision-making for rendering and YouTube metadata generation locally.
-*   **Agnostic Functions**: Exposing core rendering and upload flows as decoupled functions that can be called by external agents.
-*   **Mission Control Integration**: Chrono will act as the master **Mission Control**, wrapping BeatManager's functions into **Prefect tasks** to execute end-to-end beat selling strategies.
-
+## 🛠 Next Steps
+*   **Version History**: Automatic tracking of mix iterations within the Markdown file.
+*   **Stems Metadata**: AI-powered auto-tagging of stems (e.g., detecting loop key/bpm).
+*   **Agent API**: Exposing `dispatcher.py` as a toolset for autonomous AI agents.
