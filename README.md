@@ -2,40 +2,59 @@
 
 BeatManager is a professional "Type Beat" channel management system designed for high-performance video rendering, YouTube automation, and SEO-driven niche management. It features a modern TUI (Terminal User Interface) for management and a robust background worker for autonomous task execution.
 
-## 🏗️ Architecture
+## 🏗️ Architecture & Development
 
-BeatManager follows a **Modular Service-Oriented Architecture** with a decoupled **Worker-Queue** model, now upgraded to a robust **SQLite** backend.
+BeatManager follows a **Modular Service-Oriented Architecture**. To maintain a robust system, follow the established patterns when adding features.
 
 ### Project Structure
 ```text
 beat-manager/
 ├── app/
-│   ├── core/               # Low-level execution engines
-│   │   ├── video_engine.py    # FFmpeg-based video composition
-│   │   ├── youtube_engine.py  # Google API-based upload manager
-│   │   ├── state_manager.py   # SQLite state & persistence layer (Migrated from TinyDB)
-│   │   └── audio_engine.py    # Audio metadata & asset indexing
-│   ├── models/             # Data schemas and types
-│   │   └── schemas.py         # Pydantic-based configuration models
-│   └── services/           # High-level business logic
-│       ├── dispatcher.py      # Orchestrates engines and state
-│       └── strategy_manager.py# Handles planning and queueing
-├── assets/                 # Storage for audio and image assets
-├── data/                   # Strategy, plans, and queue JSON files
-├── cli.py                  # Command-line interface
-├── tui.py                  # Textual-based terminal dashboard
+│   ├── core/               # LOW-LEVEL: Pure logic engines. No business rules here.
+│   │   ├── video_engine.py    # FFmpeg wrappers (Pure)
+│   │   ├── youtube_engine.py  # Google API calls (Pure)
+│   │   ├── state_manager.py   # SQLite abstractions (Persistence)
+│   │   ├── audio_engine.py    # Metadata extraction (mutagen)
+│   │   └── library_manager_engine.py # Filesystem/DB sync for assets
+│   ├── models/             # SCHEMAS: Type safety across the project.
+│   │   └── schemas.py         # Pydantic models for configs and assets
+│   └── services/           # HIGH-LEVEL: Business logic & Coordination.
+│       ├── dispatcher.py      # Main entry point for executing tasks
+│       └── strategy_manager.py# Planning, queueing, and scheduling
+├── data/                   # Strategy and Plan configurations (JSON)
+├── cli.py                  # CLI Interface (Target: 100% feature parity)
+├── tui.py                  # Terminal UI Dashboard (Textual)
 ├── worker.py               # Background task processor
-└── state.db                # Centralized SQLite database (Concurrent-safe)
+└── state.db                # Central SQLite state
 ```
 
-### Core Components
-1.  **State Layer (`state_manager.py`):** Centralized repository using **SQLite**. Replaces the legacy TinyDB implementation to provide row-level locking and prevent data corruption during concurrent task execution.
-2.  **Execution Engines:**
-    -   **Video Engine:** High-quality H.264 encoding via FFmpeg (1080p).
-    -   **YouTube Engine:** Secure OAuth2 uploads with scheduling and automated metadata mapping.
-    -   **Audio Engine:** Automated scanning and metadata extraction for Suno and local assets.
-3.  **Dispatcher (`dispatcher.py`):** The bridge between interfaces and core logic. Manages task lifecycle with improved concurrency handling.
-4.  **Strategy Manager (`strategy_manager.py`):** Automates the creation of weekly upload plans based on user-defined niches and preferences.
+### How to Work on the Code
+1.  **Schema First**: If adding a new asset type or configuration, start in `app/models/schemas.py`.
+2.  **Engine Logic**: Put pure, stateless logic (like calling a new API or tool) in `app/core/`. Engines should not know about the TUI or CLI.
+3.  **Persistence**: Use `StateManager` in `app/core/state_manager.py` for all DB operations. Do not write raw SQL in other modules.
+4.  **Service Layer**: Use `TaskDispatcher` to coordinate multiple engines. This is where you handle task registration, status updates, and logging.
+5.  **Interface Parity**: Every feature added to the TUI **must** also be accessible via `cli.py`.
+
+---
+
+## 🛠️ CLI Robustness & Parity
+
+The CLI is designed to be the "Engine Room" of the project. Current focus is on making it 100% robust for automation.
+
+### Current CLI Features
+-   `status`: Check the SQLite task queue.
+-   `render`: Trigger immediate FFmpeg video composition.
+-   `upload`: Push a video to YouTube with specified metadata.
+-   `queue`: List or activate items from the weekly plan.
+-   `process`: Run pending tasks manually (useful for debugging).
+
+### 🚀 Upcoming CLI Improvements (Roadmap)
+-   [ ] **Asset Management**: Add `cli.py library list/tag/edit` to allow bulk metadata editing via CLI (matching new TUI features).
+-   [ ] **Import/Export**: Add `cli.py import --path <dir>` to automate library expansion without the TUI.
+-   [ ] **Dry Runs**: Implement `--dry-run` for `render` and `upload` to validate paths and credentials before execution.
+-   [ ] **JSON Output**: Add `--json` flag to all commands for easier integration with external scripts (e.g., `jq`).
+-   [ ] **Enhanced Logging**: Implement consistent verbosity levels (`-v`, `-vv`) across all commands.
+-   [ ] **Health Checks**: Add `cli.py doctor` to verify FFmpeg installation, SQLite integrity, and YouTube API credentials.
 
 ---
 

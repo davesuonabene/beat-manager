@@ -1,6 +1,7 @@
 import logging
 import os
-from app.models.schemas import RenderConfig, UploadConfig, TaskResult, PrivacyEnum
+from app.core.stems_engine import StemsEngine
+from app.models.schemas import RenderConfig, UploadConfig, TaskResult, PrivacyEnum, AssetType
 from app.core.video_engine import VideoEngine
 from app.core.youtube_engine import YouTubeEngine
 from app.core.state_manager import StateManager
@@ -18,14 +19,24 @@ class TaskDispatcher:
         self.project_root = project_root
         self.state = StateManager()
         self.strategy_manager = StrategyManager()
+        self.app = None # Reference to TUI app for callbacks
         
-        # Initialize Core Engines
+        # Core Engines (Lazy loaded where needed)
         self.video_engine = VideoEngine()
+        self._youtube_engine = None
         
-        # YouTube Engine initialization
-        client_secrets = os.path.join(self.project_root, "client_secrets.json")
-        tokens_dir = os.path.join(self.project_root, "tokens")
-        self.youtube_engine = YouTubeEngine(client_secrets, token_storage_dir=tokens_dir)
+        from app.core.library_manager_engine import LibraryManagerEngine
+        self.library_engine = LibraryManagerEngine()
+        self.stems_engine = StemsEngine(self.library_engine.stems_dir)
+
+    @property
+    def youtube_engine(self):
+        if self._youtube_engine is None:
+            from app.core.youtube_engine import YouTubeEngine
+            client_secrets = os.path.join(self.project_root, "client_secrets.json")
+            tokens_dir = os.path.join(self.project_root, "tokens")
+            self._youtube_engine = YouTubeEngine(client_secrets, token_storage_dir=tokens_dir)
+        return self._youtube_engine
 
     def run_render(self, config: RenderConfig) -> TaskResult:
         """
@@ -95,6 +106,64 @@ class TaskDispatcher:
             self.state.update_task_status(task_id, "Error")
             return TaskResult(success=False, error_message=error_msg)
 
+    def run_stems(self, asset_id: str) -> TaskResult:
+        """Coordinates a stem separation task."""
+        asset = self.library_engine.get_asset(asset_id)
+        if not asset:
+            return TaskResult(success=False, error_message=f"Asset {asset_id} not found")
+        
+        task_id = self.state.add_task(
+            "STEMS",
+            asset['name'],
+            "Pending",
+            asset_id=asset_id
+        )
+        return self._execute_stems(task_id, asset_id)
+
+    def _execute_stems(self, task_id: int, asset_id: str) -> TaskResult:
+        self.state.claim_task(task_id)
+        self.state.log_task_output(task_id, f"Starting stem separation for asset: {asset_id}")
+        
+        try:
+            # Check if stems already exist
+            asset = self.library_engine.get_asset(asset_id)
+            if asset.get('stems_id'):
+                self.state.log_task_output(task_id, "Stems already exist for this asset.")
+                self.state.update_task_status(task_id, "Finished")
+                return TaskResult(success=True, output_path=asset['stems_id'])
+
+            # Unified audio path retrieval
+            audio_path = self.library_engine.get_audio_path(asset_id)
+            if not audio_path:
+                raise ValueError("No audio file found for this asset")
+
+            def on_progress(p):
+                self.state.log_task_output(task_id, f"Progress: {p:.1f}%")
+                if self.app:
+                    try:
+                        self.app.call_from_thread(self.app.update_activity, f"SEPARATING {asset['name']}...", p)
+                    except: pass
+
+            # Store stems with ST prefix for organization
+            stems_id = f"ST{asset_id}"
+            result = self.stems_engine.separate_stems(audio_path, stems_id, progress_callback=on_progress)
+            
+            if result.success:
+                # Create stems asset and link
+                final_id = self.library_engine.create_stems_asset(asset_id, result.output_path)
+                self.state.log_task_output(task_id, f"Stems created with ID: {final_id}")
+                self.state.update_task_status(task_id, "Finished")
+                result.output_path = final_id
+            else:
+                self.state.log_task_output(task_id, f"Stems failed: {result.error_message}")
+                self.state.update_task_status(task_id, "Error")
+            return result
+        except Exception as e:
+            error_msg = f"Unexpected error during stem separation: {str(e)}"
+            self.state.log_task_output(task_id, error_msg)
+            self.state.update_task_status(task_id, "Error")
+            return TaskResult(success=False, error_message=error_msg)
+
     def process_task(self, task_id: int) -> TaskResult:
         """Executes a pending task by its ID."""
         task = self.state.tasks_table.get(doc_id=task_id)
@@ -131,6 +200,9 @@ class TaskDispatcher:
             time.sleep(1)
             self.state.update_task_status(task_id, "Finished")
             return TaskResult(success=True)
+        
+        elif task_type == "STEMS":
+            return self._execute_stems(task_id, details.get("asset_id"))
         
         # Mark unknown tasks as Error to prevent worker from retrying indefinitely
         error_msg = f"Unsupported task type: {task_type}"

@@ -14,6 +14,84 @@ $error: #fd8383;
 $warning: #f6ff8f;
 $highlight: #91abec;
 
+#library-header {
+    height: auto;
+    background: $panel-bg;
+}
+
+#lib-header-row-tabs {
+    height: 3;
+    padding: 0 1;
+}
+
+#lib-header-row-stats {
+    height: 1;
+    background: $bg;
+    content-align: center middle;
+}
+
+#lib-count-status {
+    color: $highlight;
+    text-style: bold italic;
+}
+
+#lib-header-row-search {
+    height: 1;
+    margin: 0;
+    padding: 0 1;
+    align: left middle;
+}
+
+#library-body-split {
+    height: 1fr;
+    background: $bg;
+}
+
+#library-table-container {
+    height: 1fr;
+    width: 1fr;
+}
+
+#library-table {
+    height: 1fr;
+    border: none;
+}
+
+#app-footer-container {
+    dock: bottom;
+    height: auto;
+    background: $panel-bg;
+}
+
+/* Activity Footer */
+#global-activity-footer {
+    height: 2;
+    background: $highlight 10%;
+    color: $text;
+    padding: 0 1;
+    align: left middle;
+    border-top: tall $highlight;
+}
+
+#activity-label {
+    width: 12;
+    color: $highlight;
+    text-style: bold;
+}
+
+#activity-status {
+    width: 40;
+    color: $text;
+    text-style: bold;
+}
+
+#activity-progress-text {
+    width: 40;
+    color: $success;
+    margin-left: 2;
+    text-style: bold;
+}
+
 Screen {
     background: $bg;
     color: $text;
@@ -433,10 +511,38 @@ WaveformDisplay {
     border: none;
     background: $bg 50%;
 }
+#inspector-footer {
+    height: 6;
+    dock: bottom;
+    padding: 0 1;
+    background: $panel-bg;
+    border-top: solid $panel_border;
+}
+
+#lbl-audio-version {
+    color: $highlight;
+    text-style: bold;
+    margin: 0 0 0 1;
+    height: 1;
+}
+
+#inspector-footer-row {
+    height: 3;
+    align: left middle;
+}
+
+#audio-source-select {
+    width: 1fr;
+    height: 3;
+    margin: 0;
+    border: tall $white 30%;
+    background: $bg;
+}
 
 #btn-inspector-save {
-    margin: 0;
-    height: 1;
+    width: 10;
+    height: 3;
+    margin-left: 1;
     border: none;
     background: $success 20%;
     color: $success;
@@ -444,7 +550,6 @@ WaveformDisplay {
 
 #btn-inspector-save:hover {
     background: $success 40%;
-    text-style: bold;
 }
 
 #library-table {
@@ -484,50 +589,6 @@ DataTable > .datatable--cursor {
 
 #inline-editor.hidden {
     display: none;
-}
-
-/* Collection Manager */
-CollectionManagerModal {
-    align: center middle;
-}
-
-#col-manager-container {
-    width: 60;
-    height: auto;
-    background: $panel-bg;
-    border: tall $border;
-    padding: 0;
-}
-
-#col-manager-container .panel_title {
-    background: $border;
-    color: $highlight;
-    margin: 0;
-    padding: 0 1;
-    height: 1;
-}
-
-#col-manager-content {
-    padding: 1 2;
-    background: $bg;
-}
-
-.modal-section-title {
-    color: $highlight;
-    text-style: bold;
-    margin-bottom: 0;
-}
-
-.integrated-btn {
-    height: 1;
-    margin: 1 0;
-    border: none;
-    background: $primary 10%;
-}
-
-.integrated-btn:hover {
-    background: $highlight 20%;
-    color: $highlight;
 }
 
 /* Modal Content Wrapper */

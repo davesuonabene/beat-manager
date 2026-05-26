@@ -81,126 +81,47 @@ class TrashPicker(ModalScreen):
         self.dismiss(None)
 
 class ActionMenuOverlay(Vertical):
-    """An overlay for asset actions in the power column."""
+    """An overlay for asset actions in the power column using a ListView for stability."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.actions = []
 
     def compose(self) -> ComposeResult:
         yield Label("ACTION MENU", classes="panel_title")
-        with Vertical(id="action-menu-content"):
-            pass
+        yield ListView(id="action-menu-list")
         with Horizontal(id="modal-buttons"):
             yield Button("BACK", id="btn-action-close", variant="error")
 
     def set_actions(self, actions: List[Tuple[str, str]]) -> None:
         self.actions = actions
-        content = self.query_one("#action-menu-content", Vertical)
-        content.remove_children()
-        for label, action in self.actions:
-            content.mount(Button(label, id=f"ctx-{action}", variant="primary", classes="ctx-btn"))
+        list_view = self.query_one("#action-menu-list", ListView)
+        list_view.clear()
+        for label, action_id in self.actions:
+            item = ListItem(Label(label))
+            item.action_id = action_id # Store custom attribute
+            list_view.append(item)
 
-    @on(Button.Pressed)
-    def handle_action(self, event: Button.Pressed) -> None:
-        if event.button.id == "btn-action-close":
-            self.app.query_one(LibraryTab).show_inspector_tab("info")
-            return
-
-        if event.button.id and event.button.id.startswith("ctx-"):
-            action = event.button.id.replace("ctx-", "")
+    @on(ListView.Selected, "#action-menu-list")
+    def handle_list_selection(self, event: ListView.Selected) -> None:
+        if event.item and hasattr(event.item, "action_id"):
+            action = event.item.action_id
             lib_tab = self.app.query_one(LibraryTab)
 
             if action == "preview": lib_tab.action_preview()
             elif action == "upload_yt": lib_tab.action_upload_yt()
             elif action == "make_beat": lib_tab.action_make_beat()
+            elif action == "make_song": lib_tab.action_make_song()
             elif action == "make_sample": lib_tab.action_make_sample()
+            elif action == "separate_stems": lib_tab.action_separate_stems()
             elif action == "downgrade": lib_tab.action_downgrade_beat()
             elif action == "link_asset": lib_tab.action_link_asset()
             elif action == "add_master": lib_tab.action_add_master()
             elif action == "convert_mp3": lib_tab.action_convert_mp3()
-            elif action == "manage_collection": lib_tab.action_manage_collection()
             elif action == "restore_trash": lib_tab.action_restore_trash()
             elif action == "delete": lib_tab.action_delete_asset()
-class CollectionManagerOverlay(Vertical):
-    """An overlay for managing collections, placed in the power column."""
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.asset_type = "beat"
-        self.asset_ids = [] # Support multiple IDs
-        self.current_collection_id = None
 
-    def compose(self) -> ComposeResult:
-        yield Label("COLLECTION MANAGER", classes="panel_title")
-        with Vertical(id="col-manager-content"):
-            yield Label("ASSIGN TO COLLECTION", classes="modal-section-title")
-            with Vertical(classes="form-section"):
-                yield Select([], id="col-select", prompt="Select Collection...")
-            yield Button("SAVE ASSIGNMENT", id="btn-col-assign", variant="success", classes="integrated-btn")
-
-            yield Label("CREATE NEW COLLECTION", classes="modal-section-title")
-            with Vertical(classes="form-section"):
-                yield Input(placeholder="Collection Name...", id="col-new-name")
-            yield Button("CREATE & ASSIGN", id="btn-col-create", variant="primary", classes="integrated-btn")
-        
-        with Horizontal(id="modal-buttons"):
-            yield Button("BACK TO INFO", id="btn-col-close", variant="error")
-
-    def refresh_collections(self) -> None:
-        from app.models.schemas import CollectionType
-        col_type = CollectionType.BEAT if self.asset_type == 'beat' else CollectionType.SAMPLE
-        cols = self.app.library_engine.state_manager.get_collections_by_type(col_type)
-        options = [("None / Unassigned", "none")] + [(c['name'], c['id']) for c in cols]
-        select = self.query_one("#col-select", Select)
-        select.set_options(options)
-        
-        # Force a refresh of the select to ensure it shows the value
-        if self.current_collection_id:
-            select.value = self.current_collection_id
-        else:
-            select.value = "none"
-
-    @on(Button.Pressed, "#btn-col-assign")
-    def handle_assign(self) -> None:
-        val = self.query_one("#col-select", Select).value
-        if val == "none": val = None
-        
-        success_count = 0
-        for asset_id in self.asset_ids:
-            if self.app.library_engine.assign_to_collection(asset_id, val, self.asset_type):
-                success_count += 1
-        
-        if success_count > 0:
-            self.app.notify(f"Assigned {success_count} assets to collection.")
-            self.app.query_one(LibraryTab).refresh_library()
-            self.app.query_one(LibraryTab).show_inspector_tab("info")
-        else:
-            self.app.notify("Assignment failed.", severity="error")
-
-    @on(Button.Pressed, "#btn-col-create")
-    def handle_create(self) -> None:
-        name = self.query_one("#col-new-name", Input).value.strip()
-        if not name:
-            self.app.notify("Collection name cannot be empty", severity="error")
-            return
-        
-        from app.models.schemas import Collection, CollectionType
-        col_type = CollectionType.BEAT if self.asset_type == 'beat' else CollectionType.SAMPLE
-        
-        # 1. Create in State
-        new_col = Collection(name=name, type=col_type)
-        self.app.library_engine.state_manager.add_collection(new_col.dict())
-        
-        # 2. Create physical folder
-        self.app.library_engine.create_collection_folder(name, self.asset_type)
-        
-        self.app.notify(f"Collection '{name}' created.")
-        self.refresh_collections()
-        self.query_one("#col-select", Select).value = new_col.id
-        self.query_one("#col-new-name", Input).value = ""
-        # We don't auto-assign here for bulk to avoid confusion, user can click "SAVE ASSIGNMENT" now
-
-    @on(Button.Pressed, "#btn-col-close")
-    def close_overlay(self) -> None:
+    @on(Button.Pressed, "#btn-action-close")
+    def close_menu(self) -> None:
         self.app.query_one(LibraryTab).show_inspector_tab("info")
 
 class ImportOverlay(Vertical):
@@ -270,7 +191,6 @@ class ImportOverlay(Vertical):
             asset_path = str(row_key)
             table.selected_rows.add(asset_path)
             table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
-        self.app.notify("All items selected.")
 
     def action_deselect_all(self) -> None:
         table = self.query_one("#import-results-table", DataTable)
@@ -278,7 +198,6 @@ class ImportOverlay(Vertical):
             table.selected_rows.clear()
             for row_key in table.rows:
                 table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
-        self.app.notify("All items deselected.")
 
     @on(Button.Pressed, "#btn-import-preview")
     def handle_preview(self) -> None:
@@ -292,7 +211,7 @@ class ImportOverlay(Vertical):
                     try:
                         self.app.query_one(LibraryTab).currently_playing_id = None
                     except: pass
-                    self.app.notify(f"Playing: {os.path.basename(asset_data['path'])}")
+                    self.app.update_activity(f"PLAYING: {os.path.basename(asset_data['path'])}")
                 else:
                     self.app.notify("Only audio can be previewed", severity="warning")
 
@@ -341,7 +260,7 @@ class ImportOverlay(Vertical):
                     asset.get('status', 'Ready'),
                     key=path
                 )
-            self.app.notify(f"Scanned {len(self.found_assets)} items.")
+            self.app.update_activity(f"SCANNED: {len(self.found_assets)} ITEMS")
         except Exception as e:
             self.app.notify(f"Scan failed: {str(e)}", severity="error")
 
@@ -393,7 +312,7 @@ class ImportOverlay(Vertical):
                         )
                     count += 1
             
-            self.app.notify(f"Imported {count} assets.")
+            self.app.update_activity(f"IMPORTED {count} ASSETS")
             self.handle_scan() 
         except Exception as e:
             self.app.notify(f"Import failed: {str(e)}", severity="error")
@@ -423,7 +342,7 @@ class ImportOverlay(Vertical):
                         delete_source=delete_after
                     )
                 count += 1
-            self.app.notify(f"Bulk import finished: {count} assets.")
+            self.app.update_activity(f"BULK IMPORT FINISHED: {count} ASSETS")
             self.handle_scan() 
         except Exception as e:
             self.app.notify(f"Bulk import failed: {str(e)}", severity="error")
@@ -585,9 +504,10 @@ class LibraryTab(Vertical):
         Binding("ctrl+d", "deselect_all", "Deselect"),
         Binding("f5", "sync_library", "Sync"),
         Binding("l", "link_asset", "Link"),
-        Binding("m", "manage_collection", "Collection"),
         Binding("d", "downgrade_beat", "Downgrade"),
-        Binding("escape", "cancel_edit", "Cancel Edit", show=False),
+        Binding("escape", "clear_selection", "Clear Selection"),
+        Binding("slash", "focus_search", "Search"),
+        Binding("i", "invert_selection", "Invert Selection"),
         Binding("space", "toggle_selection", "Select"),
     ]
 
@@ -600,17 +520,22 @@ class LibraryTab(Vertical):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="library-header"):
-            with Horizontal(id="lib-header-row-2"):
+            with Horizontal(id="lib-header-row-tabs"):
                 yield Tabs(
                     Tab("ALL", id="tab-all"),
                     Tab("BEATS", id="tab-beat"),
+                    Tab("SONGS", id="tab-song"),
                     Tab("SAMPLES", id="tab-sample"),
+
                     Tab("RAW", id="tab-raw"),
                     Tab("IMAGES", id="tab-cover"),
                     id="lib-asset-tabs"
                 )
+            
+            with Horizontal(id="lib-header-row-stats"):
+                yield Label("0 ITEMS", id="lib-count-status")
                 
-            with Horizontal(id="lib-header-row-1"):
+            with Horizontal(id="lib-header-row-search"):
                 yield Input(placeholder="Search assets...", id="lib-filter-search")
                 yield Button("📥", id="btn-header-import", classes="header-icon-btn")
                 yield Button("📤", id="btn-header-export", classes="header-icon-btn")
@@ -619,55 +544,58 @@ class LibraryTab(Vertical):
                 yield Button("🧹", id="btn-header-empty-trash", classes="header-icon-btn")
                 yield Button("EDIT", id="btn-header-edit", classes="header-action-btn")
         
-        with Vertical(id="library-main-content"):
-            with Horizontal(id="library-body-split"):
-                with Vertical(id="library-table-container"):
-                    yield DataTable(id="library-table", cursor_type="row")
-                    yield Input(id="inline-editor", classes="hidden")
-                    yield Player(id="library-player")
-                with Vertical(id="library-inspector"):
-                    with Vertical(id="inspector-info-view"):
-                        yield Label("ASSET INFO", classes="panel_title")
-                        with TabbedContent(id="inspector-tabs"):
-                            with TabPane("NOTES", id="tab-notes"):
-                                yield TextArea(id="inspector-notes")
-                            with TabPane("METADATA", id="tab-metadata"):
-                                with VerticalScroll():
-                                    with Grid(id="meta-grid"):
-                                        yield Label("Genre")
-                                        yield Input(id="meta-genre")
-                                        yield Label("Mood")
-                                        yield Input(id="meta-mood")
-                                        yield Label("Key")
-                                        yield Input(id="meta-key")
-                                        yield Label("BPM")
-                                        yield Input(id="meta-bpm")
-                        yield Button("SAVE", id="btn-inspector-save", variant="success")
-                    yield CollectionManagerOverlay(id="inspector-col-view", classes="hidden")
-                    yield ImportOverlay(id="inspector-import-view", classes="hidden")
-                    yield ActionMenuOverlay(id="inspector-action-view", classes="hidden")
+        with Horizontal(id="library-body-split"):
+            with Vertical(id="library-table-container"):
+                yield DataTable(id="library-table", cursor_type="row")
+                yield Input(id="inline-editor", classes="hidden")
+                yield Player(id="library-player")
+            with Vertical(id="library-inspector"):
+                with Vertical(id="inspector-info-view"):
+                    yield Label("ASSET INFO", classes="panel_title")
+                    with TabbedContent(id="inspector-tabs"):
+                        with TabPane("NOTES", id="tab-notes"):
+                            yield TextArea(id="inspector-notes")
+                        with TabPane("METADATA", id="tab-metadata"):
+                            with VerticalScroll():
+                                with Grid(id="meta-grid"):
+                                    yield Label("Genre")
+                                    yield Input(id="meta-genre")
+                                    yield Label("Mood")
+                                    yield Input(id="meta-mood")
+                                    yield Label("Key")
+                                    yield Input(id="meta-key")
+                                    yield Label("BPM")
+                                    yield Input(id="meta-bpm")
+                                    yield Label("Tags")
+                                    yield Input(placeholder="tag1, tag2...", id="meta-tags")
+                    with Vertical(id="inspector-footer"):
+                        yield Label("ACTIVE AUDIO VERSION", id="lbl-audio-version")
+                        with Horizontal(id="inspector-footer-row"):
+                            yield Select([], id="audio-source-select", prompt="SELECT...")
+                            yield Button("SAVE", id="btn-inspector-save", variant="success")
+
+                yield ImportOverlay(id="inspector-import-view", classes="hidden")
+                yield ActionMenuOverlay(id="inspector-action-view", classes="hidden")
 
     def show_inspector_tab(self, view: str) -> None:
+        self.current_inspector_tab = view
         info_view = self.query_one("#inspector-info-view")
-        col_view = self.query_one("#inspector-col-view")
         import_view = self.query_one("#inspector-import-view")
         action_view = self.query_one("#inspector-action-view")
         
         # Hide all first
-        for v in [info_view, col_view, import_view, action_view]:
+        for v in [info_view, import_view, action_view]:
             v.add_class("hidden")
             
         if view == "info":
             info_view.remove_class("hidden")
-        elif view == "collection":
-            col_view.remove_class("hidden")
-            col_view.refresh_collections()
         elif view == "import":
             import_view.remove_class("hidden")
         elif view == "action":
             action_view.remove_class("hidden")
 
     def on_mount(self) -> None:
+        self.current_inspector_tab = "info"
         table = self.query_one("#library-table", DataTable)
         table.selected_rows = set()
         
@@ -675,7 +603,7 @@ class LibraryTab(Vertical):
         table.add_column(" ", width=3)
         table.add_column("ID", width=10)
         table.add_column("NAME", width=20) # Much shorter initial width
-        table.add_column("COLLECTION", width=15)
+        table.add_column("TAGS", width=15)
         table.add_column("TYPE", width=10)
         table.add_column("DATA", width=10)
         table.add_column("BPM", width=6)
@@ -743,8 +671,14 @@ class LibraryTab(Vertical):
                     continue
                 
                 # Check search
-                if search and search.lower() not in a.get('name', '').lower():
-                    continue
+                if search:
+                    if search.startswith("#"):
+                        target_tag = search[1:].lower().strip()
+                        asset_tags = [t.lower() for t in a.get('tags', [])]
+                        if not any(target_tag in t for t in asset_tags):
+                            continue
+                    elif search.lower() not in a.get('name', '').lower():
+                        continue
                     
                 new_assets.append(a)
             
@@ -758,15 +692,17 @@ class LibraryTab(Vertical):
 
             self.assets = new_assets
             
+            # Update count status
+            try:
+                self.query_one("#lib-count-status", Label).update(f"{len(self.assets)} ITEMS")
+            except: pass
+            
             # Save cursor state
             old_cursor_row = table.cursor_row
             
             table.clear(columns=False)
             seen_ids = set()
             selected_ids = getattr(table, "selected_rows", set())
-            
-            # Pre-fetch collections mapping to avoid O(N) database queries
-            collections = {c.get('id'): c.get('name', 'Unassigned') for c in self.app.library_engine.state_manager.collections_table.all()}
             
             for a in self.assets:
                 asset_id = str(a.get('id'))
@@ -778,8 +714,7 @@ class LibraryTab(Vertical):
                 raw_name = a.get('name', 'Unknown')
                 display_name = f"[bold green]▶ {raw_name}[/bold green]" if asset_id == self.currently_playing_id else raw_name
                 
-                col_id = a.get('collection_id')
-                col_name = collections.get(col_id, "Unassigned") if col_id else "Unassigned"
+                tags_display = ", ".join(a.get('tags', []))
 
                 try:
                     # Use a prefixed key to avoid collisions with any internal Textual keys
@@ -788,7 +723,7 @@ class LibraryTab(Vertical):
                         marker,
                         asset_id,
                         display_name,
-                        col_name,
+                        tags_display,
                         a.get('asset_type', 'N/A').upper(),
                         a.get('data_type', 'AUDIO').upper(),
                         str(a.get('bpm', '') or ""),
@@ -805,10 +740,21 @@ class LibraryTab(Vertical):
                     table.cursor_coordinate = Coordinate(min(old_cursor_row, len(self.assets) - 1), 0)
                 except: pass
             
+            # Restore selection state
+            if selected_ids:
+                table.selected_rows = set(selected_ids) # Restore as a SET
+                for row_key in table.rows.keys():
+                    asset_id = str(row_key.value).replace("row_", "")
+                    if asset_id in table.selected_rows:
+                        table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
+
             if len(self.assets) == 0:
                 self.populate_inspector(None)
         except Exception as e:
-            pass
+            import traceback
+            with open("crash.log", "a") as f:
+                f.write(f"\n[{datetime.now().isoformat()}] REFRESH ERROR: {str(e)}\n{traceback.format_exc()}\n")
+            self.app.update_activity("ERROR: LIBRARY REFRESH FAILED")
 
     @on(Button.Pressed, "#btn-header-import")
     def handle_header_import(self) -> None: self.app.action_toggle_import()
@@ -832,19 +778,21 @@ class LibraryTab(Vertical):
     def trigger_context_menu(self) -> None:
         ids = self._get_selected_ids()
         if not ids: 
-            self.app.notify("Select an asset first", severity="warning")
+            self.app.update_activity("ERROR: SELECT ASSETS FIRST")
             return
         
         actions = [
             ("PREVIEW [P]", "preview"),
             ("UPLOAD TO YT [Y]", "upload_yt"),
             ("MAKE BEAT [B]", "make_beat"),
+            ("MAKE SONG [S]", "make_song"),
             ("MAKE SAMPLE [U]", "make_sample"),
+            ("SEPARATE STEMS", "separate_stems"),
             ("DOWNGRADE [D]", "downgrade"),
+
             ("LINK ASSET [L]", "link_asset"),
             ("ADD MASTER", "add_master"),
             ("CONVERT TO MP3", "convert_mp3"),
-            ("COLLECTION [M]", "manage_collection"),
             ("RESTORE TRASH", "restore_trash"),
             ("DELETE [DEL]", "delete")
         ]
@@ -852,9 +800,11 @@ class LibraryTab(Vertical):
         action_view = self.query_one("#inspector-action-view", ActionMenuOverlay)
         action_view.set_actions(actions)
         self.show_inspector_tab("action")
-    @on(events.MouseDown, "#library-table")
+    @on(events.MouseDown, "DataTable")
     def handle_right_click(self, event: events.MouseDown) -> None:
         if event.button == 3: # Right click
+            # If nothing is selected, try to select the row under the mouse
+            # but for now, just trigger context menu for current selection
             self.trigger_context_menu()
 
     @on(Input.Changed, "#lib-filter-search")
@@ -873,140 +823,314 @@ class LibraryTab(Vertical):
                 # Force refresh on tab change
                 self.refresh_library(force=True)
 
-    @on(DataTable.RowSelected, "#library-table")
-    def handle_row_selected(self, event: DataTable.RowSelected) -> None:
-        row_key = event.row_key.value
-        asset_id = str(row_key).replace("row_", "")
-        self.populate_inspector(asset_id)
+    @on(DataTable.RowHighlighted, "#library-table")
+    def handle_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key is None: return
         
-    def populate_inspector(self, asset_id: str | None) -> None:
-        self.show_inspector_tab("info")
-        inspector = self.query_one("#inspector-info-view")
-        notes_area = self.query_one("#inspector-notes", TextArea)
+        table = self.query_one("#library-table", DataTable)
+        selected_ids = list(getattr(table, "selected_rows", set()))
         
-        if not asset_id:
-            notes_area.text = ""
-            self.query_one("#meta-genre", Input).value = ""
-            self.query_one("#meta-mood", Input).value = ""
-            self.query_one("#meta-key", Input).value = ""
-            self.query_one("#meta-bpm", Input).value = ""
-            if hasattr(inspector, 'asset_id'): del inspector.asset_id
-            return
-
-        asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
-        if not asset:
-            self.populate_inspector(None)
-            return
-        
-        # Load notes
-        notes_path = ""
-        if asset.get('asset_type') == 'beat':
-            notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
-        elif asset.get('asset_type') == 'raw':
-            notes_path = os.path.join(self.app.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
-            
-        if os.path.exists(notes_path):
-            try:
-                with open(notes_path, "r") as f:
-                    notes_area.text = f.read()
-            except Exception:
-                notes_area.text = ""
+        if len(selected_ids) > 1:
+            # We are in multi-select mode.
+            # Only re-populate if the bulk selection has actually changed
+            # (which shouldn't happen just by moving the cursor, but let's be safe)
+            current_bulk = getattr(self.query_one("#inspector-info-view"), "bulk_ids", [])
+            if set(selected_ids) != set(current_bulk):
+                self.populate_inspector_bulk(selected_ids)
+        elif len(selected_ids) == 1:
+            # Single item selected - always show that item
+            self.populate_inspector(selected_ids[0])
         else:
-            notes_area.text = ""
+            # No selection - show the highlighted item
+            row_key = event.row_key.value
+            asset_id = str(row_key).replace("row_", "")
+            self.populate_inspector(asset_id)
             
-        # Load metadata
-        meta = asset.get('metadata', {})
-        if asset.get('asset_type') == 'beat':
-            meta_json_path = os.path.join(asset.get('path', ''), "metadata.json")
-            if os.path.exists(meta_json_path):
-                import json
+    def populate_inspector(self, asset_id: str | None) -> None:
+        self._populating_inspector = True
+        try:
+            if getattr(self, "current_inspector_tab", "info") == "info":
+                self.show_inspector_tab("info")
+            
+            inspector = self.query_one("#inspector-info-view")
+            notes_area = self.query_one("#inspector-notes", TextArea)
+            
+            if not asset_id:
+                notes_area.text = ""
+                self.query_one("#meta-genre", Input).value = ""
+                self.query_one("#meta-mood", Input).value = ""
+                self.query_one("#meta-key", Input).value = ""
+                self.query_one("#meta-bpm", Input).value = ""
+                self.query_one("#meta-tags", Input).value = ""
+                if hasattr(inspector, 'asset_id'): del inspector.asset_id
+                if hasattr(inspector, 'bulk_ids'): del inspector.bulk_ids
+                inspector.initial_values = {}
+                return
+
+            asset = self.app.library_engine.get_asset(asset_id)
+            if not asset:
+                self.populate_inspector(None)
+                return
+            
+            # Resolve files
+            resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+            
+            # Load notes
+            notes_path = resolved.get("notes")
+            if not notes_path or not os.path.exists(notes_path):
+                # Fallback to the main markdown file if no separate notes exist
+                notes_path = resolved.get("markdown")
+
+            if notes_path and os.path.exists(notes_path):
                 try:
-                    with open(meta_json_path, "r") as f:
-                        loaded_meta = json.load(f)
-                        meta.update(loaded_meta)
-                except: pass
-                    
-        self.query_one("#meta-genre", Input).value = str(meta.get("genre", ""))
-        self.query_one("#meta-mood", Input).value = str(meta.get("mood", ""))
-        
-        self.query_one("#meta-key", Input).value = str(meta.get("key", asset.get("key", "")))
-        self.query_one("#meta-bpm", Input).value = str(meta.get("bpm", asset.get("bpm", "")))
-        
-        inspector.asset_id = asset_id
+                    with open(notes_path, "r") as f:
+                        notes_area.text = f.read()
+                except Exception:
+                    notes_area.text = ""
+            else:
+                notes_area.text = ""
+                
+            # Load metadata
+            meta = asset.get('metadata', {})
+            
+            genre = str(meta.get("genre", ""))
+            mood = str(meta.get("mood", ""))
+            key = str(meta.get("key", asset.get("key", "")))
+            bpm = str(meta.get("bpm", asset.get("bpm", "")))
+            tags = ", ".join(resolved.get("tags", asset.get("tags", [])))
+
+            self.query_one("#meta-genre", Input).value = genre
+            self.query_one("#meta-mood", Input).value = mood
+            self.query_one("#meta-key", Input).value = key
+            self.query_one("#meta-bpm", Input).value = bpm
+            self.query_one("#meta-tags", Input).value = tags
+            
+            # Update audio versions selector
+            source_select = self.query_one("#audio-source-select", Select)
+            audio_options = []
+            
+            versions = resolved.get("versions", [])
+            if versions:
+                for v in versions:
+                    audio_options.append((v["name"], v["path"]))
+            
+            source_select.set_options(audio_options)
+            
+            # Default to the first version (usually 'Original (Raw)')
+            if audio_options:
+                source_select.value = audio_options[0][1]
+            else:
+                source_select.value = Select.BLANK
+
+            inspector.asset_id = asset_id
+            if hasattr(inspector, 'bulk_ids'): del inspector.bulk_ids
+            
+            # Store initial values for change detection
+            inspector.initial_values = {
+                "genre": genre, "mood": mood, "key": key,
+                "bpm": bpm, "tags": tags, "notes": notes_area.text
+            }
+        finally:
+            self._populating_inspector = False
+
+    def populate_inspector_bulk(self, asset_ids: List[str]) -> None:
+        """Populate inspector with multiple assets for bulk editing."""
+        self._populating_inspector = True
+        try:
+            if getattr(self, "current_inspector_tab", "info") == "info":
+                self.show_inspector_tab("info")
+                
+            inspector = self.query_one("#inspector-info-view")
+            notes_area = self.query_one("#inspector-notes", TextArea)
+            
+            # Clear audio sources in bulk mode
+            self.query_one("#audio-source-select", Select).set_options([])
+            
+            assets = []
+            for aid in asset_ids:
+                a = self.app.library_engine.get_asset(aid)
+                if a: assets.append(a)
+            
+            if not assets:
+                self.populate_inspector(None)
+                return
+
+            # Helper to find common value or '*'
+            def get_common(keys, attr=None):
+                values = []
+                for a in assets:
+                    val = a
+                    for k in keys:
+                        if isinstance(val, dict): val = val.get(k)
+                        else: val = None
+                    if attr and not val: # Check top level too
+                        val = a.get(attr)
+                    values.append(str(val or ""))
+                return values[0] if all(v == values[0] for v in values) else "*"
+
+            genre = get_common(["metadata", "genre"])
+            mood = get_common(["metadata", "mood"])
+            key = get_common(["metadata", "key"], "key")
+            bpm = get_common(["metadata", "bpm"], "bpm")
+            
+            # Tags are a bit special as they are a list
+            tag_sets = [set(a.get("tags", [])) for a in assets]
+            common_tags = set.intersection(*tag_sets) if tag_sets else set()
+            if all(ts == tag_sets[0] for ts in tag_sets):
+                tags = ", ".join(sorted(list(common_tags)))
+            else:
+                tags = "*"
+
+            self.query_one("#meta-genre", Input).value = genre
+            self.query_one("#meta-mood", Input).value = mood
+            self.query_one("#meta-key", Input).value = key
+            self.query_one("#meta-bpm", Input).value = bpm
+            self.query_one("#meta-tags", Input).value = tags
+
+            notes_area.text = "[BULK EDITING - NOTES NOT SHARED]"
+            
+            inspector.bulk_ids = asset_ids
+            if hasattr(inspector, 'asset_id'): del inspector.asset_id
+            
+            # Store initial values for change detection
+            inspector.initial_values = {
+                "genre": genre, "mood": mood, "key": key,
+                "bpm": bpm, "tags": tags, "notes": notes_area.text
+            }
+        finally:
+            self._populating_inspector = False
+
+    @on(Select.Changed, "#audio-source-select")
+    def handle_audio_source_changed(self, event: Select.Changed) -> None:
+        if event.value and event.value != Select.BLANK and not getattr(self, "_populating_inspector", False):
+            # Restart preview with the new source if something is already playing
+            if self.currently_playing_id:
+                self.action_preview()
 
     @on(Button.Pressed, "#btn-inspector-save")
-    def handle_inspector_save(self) -> None:
+    def handle_inspector_save(self, is_auto: bool = False) -> None:
         inspector = self.query_one("#inspector-info-view")
-        if not hasattr(inspector, 'asset_id'): return
         
-        asset_id = inspector.asset_id
-        asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
-        if not asset: return
+        asset_ids = []
+        if hasattr(inspector, 'asset_id'):
+            asset_ids = [inspector.asset_id]
+        elif hasattr(inspector, 'bulk_ids'):
+            asset_ids = inspector.bulk_ids
         
-        # Save notes
-        notes_text = self.query_one("#inspector-notes", TextArea).text
-        notes_path = ""
-        if asset.get('asset_type') == 'beat':
-            notes_path = os.path.join(asset.get('path', ''), asset.get('notes_file', 'notes.txt'))
-        elif asset.get('asset_type') == 'raw':
-            notes_path = os.path.join(self.app.library_engine.audio_dir, asset.get('notes_file', 'notes.txt'))
-            
-        if notes_path:
-            try:
-                with open(notes_path, "w") as f:
-                    f.write(notes_text)
-            except Exception as e:
-                self.app.notify(f"Failed to save notes: {e}", severity="error")
-                
-        # Save metadata
+        if not asset_ids:
+            if not is_auto: self.app.notify("No assets selected for saving", severity="warning")
+            return
+
+        # Capture current form values
         genre = self.query_one("#meta-genre", Input).value
         mood = self.query_one("#meta-mood", Input).value
         key = self.query_one("#meta-key", Input).value
         bpm_str = self.query_one("#meta-bpm", Input).value
+        tags_str = self.query_one("#meta-tags", Input).value
+        notes_text = self.query_one("#inspector-notes", TextArea).text
+
+        # Get initial values to detect actual changes
+        initial = getattr(inspector, "initial_values", {})
         
-        bpm = None
-        if bpm_str:
-            try: bpm = float(bpm_str)
-            except: pass
-            
-        meta_updates = {"genre": genre, "mood": mood}
-        if key: meta_updates["key"] = key
-        if bpm is not None: meta_updates["bpm"] = bpm
+        changes_to_apply = {}
+        if genre != initial.get("genre") and genre != "*": changes_to_apply["genre"] = genre
+        if mood != initial.get("mood") and mood != "*": changes_to_apply["mood"] = mood
+        if key != initial.get("key") and key != "*": changes_to_apply["key"] = key
+        if bpm_str != initial.get("bpm") and bpm_str != "*": changes_to_apply["bpm"] = bpm_str
+        if tags_str != initial.get("tags") and tags_str != "*": changes_to_apply["tags"] = tags_str
         
-        if asset.get('asset_type') == 'beat':
-            meta_json_path = os.path.join(asset.get('path', ''), "metadata.json")
-            import json
-            current_meta = {}
-            if os.path.exists(meta_json_path):
+        notes_changed = (len(asset_ids) == 1 and notes_text != initial.get("notes") 
+                         and notes_text != "[BULK EDITING - NOTES NOT SHARED]")
+
+        if not changes_to_apply and not notes_changed:
+            return
+
+        # Only process notes if it's a single asset
+        if notes_changed:
+            asset_id = asset_ids[0]
+            resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+            notes_path = resolved.get("notes")
+            if notes_path:
                 try:
-                    with open(meta_json_path, "r") as f:
-                        current_meta = json.load(f)
-                except: pass
-                
-            current_meta.update(meta_updates)
-            try:
-                with open(meta_json_path, "w") as f:
-                    json.dump(current_meta, f)
-            except Exception as e:
-                self.app.notify(f"Failed to save metadata.json: {e}", severity="error")
-                
-            # Update DB metadata and top-level fields
-            db_meta = asset.get('metadata', {})
-            db_meta.update(current_meta)
-            update_payload = {"metadata": db_meta}
-            if key: update_payload["key"] = key
-            if bpm is not None: update_payload["bpm"] = bpm
-            self.app.library_engine.update_asset(asset_id, update_payload)
-        else:
+                    with open(notes_path, "w") as f: f.write(notes_text)
+                    initial["notes"] = notes_text # Update initial for auto-save loop
+                except Exception as e:
+                    if not is_auto: self.app.notify(f"Failed to save notes: {e}", severity="error")
+
+        # Process metadata for all selected assets
+        success_count = 0
+        update_error = None
+        
+        for aid in asset_ids:
+            asset = self.app.library_engine.get_asset(aid)
+            if not asset: continue
+
+            update_payload = {}
             current_meta = asset.get('metadata', {})
-            current_meta.update(meta_updates)
-            update_payload = {"metadata": current_meta}
-            if key: update_payload["key"] = key
-            if bpm is not None: update_payload["bpm"] = bpm
-            self.app.library_engine.update_asset(asset_id, update_payload)
-            
-        self.app.notify("Saved notes and metadata.", severity="information")
-        self.refresh_library()
+            if not isinstance(current_meta, dict): current_meta = {}
+            new_meta = dict(current_meta)
+
+            meta_changed = False
+            if "genre" in changes_to_apply:
+                new_meta["genre"] = changes_to_apply["genre"]
+                meta_changed = True
+            if "mood" in changes_to_apply:
+                new_meta["mood"] = changes_to_apply["mood"]
+                meta_changed = True
+            if "key" in changes_to_apply:
+                update_payload["key"] = changes_to_apply["key"]
+                new_meta["key"] = changes_to_apply["key"]
+                meta_changed = True
+            if "bpm" in changes_to_apply:
+                try:
+                    val = changes_to_apply["bpm"]
+                    bpm = float(val) if val.strip() else None
+                    update_payload["bpm"] = bpm
+                    new_meta["bpm"] = bpm
+                    meta_changed = True
+                except: pass
+
+            if meta_changed:
+                update_payload["metadata"] = new_meta
+                
+            if "tags" in changes_to_apply:
+                tags = [t.strip() for t in changes_to_apply["tags"].split(",") if t.strip()]
+                update_payload["tags"] = tags
+
+            if update_payload:
+                try:
+                    if self.app.library_engine.update_asset(aid, update_payload):
+                        success_count += 1
+                    else:
+                        update_error = "Database update returned False"
+                except Exception as e:
+                    update_error = str(e)
+
+        if success_count > 0:
+            # Update initial values so auto-save doesn't re-trigger
+            for k, v in changes_to_apply.items():
+                initial[k] = v
+                
+            if not is_auto:
+                msg = f"SAVED {success_count} ASSETS" if len(asset_ids) > 1 else f"SAVED: {asset.get('name')}"
+                self.app.update_activity(msg)
+                self.refresh_library()
+        elif not is_auto and asset_ids:
+            if not changes_to_apply and not notes_changed:
+                self.app.notify("No changes detected", severity="information")
+            else:
+                self.app.notify(f"Update failed: {update_error or 'Unknown error'}", severity="error")
+
+    @on(Input.Changed, "#meta-genre")
+    @on(Input.Changed, "#meta-mood")
+    @on(Input.Changed, "#meta-key")
+    @on(Input.Changed, "#meta-bpm")
+    @on(Input.Changed, "#meta-tags")
+    @on(TextArea.Changed, "#inspector-notes")
+    def handle_auto_save(self) -> None:
+        if getattr(self, "_populating_inspector", False):
+            return
+        self.handle_inspector_save(is_auto=True)
 
     def action_toggle_selection(self) -> None:
         table = self.query_one("#library-table", DataTable)
@@ -1024,6 +1148,24 @@ class LibraryTab(Vertical):
             else:
                 table.selected_rows.add(asset_id)
                 table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
+            
+            # Selection changed, let RowHighlighted or manual call handle the inspector
+            # However, since RowHighlighted might not trigger if the row doesn't change,
+            # we force a check here.
+            selected_ids = list(table.selected_rows)
+            inspector = self.query_one("#inspector-info-view")
+            
+            if len(selected_ids) > 1:
+                self.populate_inspector_bulk(selected_ids)
+            elif len(selected_ids) == 1:
+                self.populate_inspector(selected_ids[0])
+            else:
+                # Revert to highlighted row if no selection
+                if table.cursor_row is not None:
+                    row_keys = list(table.rows.keys())
+                    current_asset_id = str(row_keys[table.cursor_row].value).replace("row_", "")
+                    self.populate_inspector(current_asset_id)
+            
             table.action_cursor_down()
 
     def _get_selected_ids(self) -> List[str]:
@@ -1041,7 +1183,9 @@ class LibraryTab(Vertical):
 
     def action_add_master(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         
         def on_path_selected(path: str | None) -> None:
             if path:
@@ -1050,14 +1194,16 @@ class LibraryTab(Vertical):
                     if self.app.library_engine.add_master_version(beat_id, path):
                         count += 1
                 if count > 0:
-                    self.app.notify(f"Added master version to {count} beats.")
+                    self.app.update_activity(f"ADDED MASTER TO {count} BEATS")
                     self.refresh_library()
         
         self.app.push_screen(PathPicker(), on_path_selected)
 
     def action_convert_mp3(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         
         count = 0
         for asset_id in ids:
@@ -1068,12 +1214,14 @@ class LibraryTab(Vertical):
                 self.app.notify(f"MP3 generation failed for {asset_id}: {str(e)}", severity="error")
                 continue
         if count > 0:
-            self.app.notify(f"Generated MP3s for {count} beats.")
+            self.app.update_activity(f"GENERATED MP3s FOR {count} BEATS")
             self.refresh_library()
 
     def action_export_beat(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         
         def on_path_selected(path: str | None) -> None:
             if path:
@@ -1082,13 +1230,15 @@ class LibraryTab(Vertical):
                     if self.app.library_engine.export_beat(beat_id, path):
                         count += 1
                 if count > 0:
-                    self.app.notify(f"Exported {count} beats to {path}")
+                    self.app.update_activity(f"EXPORTED {count} BEATS TO {path}")
         
         self.app.push_screen(PathPicker(), on_path_selected)
 
     def action_move_beat(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         
         table = self.query_one("#library-table", DataTable)
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
@@ -1100,7 +1250,7 @@ class LibraryTab(Vertical):
                     if self.app.library_engine.move_beat(beat_id, path):
                         count += 1
                 if count > 0:
-                    self.app.notify(f"Moved {count} assets.")
+                    self.app.update_activity(f"MOVED {count} ASSETS")
                     self.refresh_library()
         
         self.app.push_screen(PathPicker(), on_path_selected)
@@ -1108,32 +1258,45 @@ class LibraryTab(Vertical):
     def action_preview(self) -> None:
         ids = self._get_selected_ids()
         if not ids:
-            self.app.notify("Select an asset to preview", severity="warning")
+            self.app.update_activity("ERROR: SELECT AN ASSET")
             return
         
         asset_id = ids[0]
-        asset = next((a for a in self.assets if str(a.get('id')) == asset_id), None)
-        if not asset:
-            asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == asset_id), None)
+        resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+        
+        if not resolved:
+            self.app.notify(f"Asset {asset_id} not found", severity="error")
+            return
 
-        if asset:
-            if asset.get('data_type') != 'audio':
-                self.app.notify("Preview available for audio only", severity="warning")
-                return
+        # Get audio path from selector (it stores absolute paths)
+        source_select = self.query_one("#audio-source-select", Select)
+        audio_path = source_select.value if source_select.value and source_select.value != Select.BLANK else None
+
+        if not audio_path:
+            # Fallback to the first version if nothing selected
+            versions = resolved.get("versions", [])
+            if versions: audio_path = versions[0]["path"]
+
+        if audio_path and os.path.exists(audio_path):
+            self.app.audio_engine.play_preview(audio_path)
+            self.currently_playing_id = asset_id
             
-            asset_type = asset.get('asset_type', asset.get('type', 'raw'))
-            audio_path = asset.get('path', '') if asset_type == 'raw' else os.path.join(asset.get('path', ''), asset.get('versions', {}).get('main', asset.get('audio_file', '')))
+            # Find the display name for the activity log
+            source_name = "Unknown Version"
+            for v in resolved.get("versions", []):
+                if v["path"] == audio_path:
+                    source_name = v["name"].upper()
+                    break
             
-            if audio_path and os.path.exists(audio_path):
-                self.app.audio_engine.play_preview(audio_path)
-                self.currently_playing_id = asset_id
-                self.app.notify(f"Playing: {asset.get('name', 'Unknown')}")
-            else: 
-                self.app.notify(f"File not found: {audio_path}", severity="error")
+            self.app.update_activity(f"PLAYING [{source_name}]: {resolved.get('name', 'Unknown')}")
+        else:
+            self.app.notify(f"Audio file not found: {audio_path or 'N/A'}", severity="warning")
 
     def action_upload_yt(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("Select an asset to upload", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT AN ASSET")
+            return
         
         asset_id = ids[0]
         # Switch to YouTube tab and apply templates
@@ -1143,47 +1306,142 @@ class LibraryTab(Vertical):
         except Exception as e:
             self.app.notify(f"Could not switch to YouTube tab: {str(e)}", severity="error")
 
-    def action_make_beat(self) -> None:
+    @work(exclusive=True)
+    async def action_make_beat(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
-        
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT ASSETS FIRST")
+            return
+
         table = self.query_one("#library-table", DataTable)
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
-        
+
+        total = len(ids)
         count = 0
-        for asset_id in ids:
+        self.app.update_activity(f"PROMOTING BEATS...", 0)
+
+        for i, asset_id in enumerate(ids):
             try:
                 self.app.library_engine.create_beat_from_audio(asset_id)
                 count += 1
             except Exception as e:
                 self.app.notify(f"Beat creation failed for {asset_id}: {str(e)}", severity="error")
                 continue
-        if count > 0:
-            self.app.notify(f"Created {count} beat structures.")
-            self.refresh_library()
 
-    def action_make_sample(self) -> None:
+            # Update progress
+            progress = ((i + 1) / total) * 100
+            self.app.update_activity(f"PROMOTING: {count}/{total}", progress)
+            await asyncio.sleep(0.05) # Yield for UI update
+
+        if count > 0:
+            self.app.update_activity(f"FINISHED: CREATED {count} BEATS")
+            self.refresh_library()
+        else:
+            self.app.update_activity("IDLE", 0)
+
+    @work(exclusive=True)
+    async def action_make_sample(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT ASSETS FIRST")
+            return
 
         table = self.query_one("#library-table", DataTable)
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
 
+        total = len(ids)
         count = 0
-        for asset_id in ids:
+        self.app.update_activity(f"CREATING SAMPLES...", 0)
+
+        for i, asset_id in enumerate(ids):
             try:
                 self.app.library_engine.create_sample_from_audio(asset_id)
                 count += 1
             except Exception as e:
                 self.app.notify(f"Sample creation failed for {asset_id}: {str(e)}", severity="error")
                 continue
+
+            progress = ((i + 1) / total) * 100
+            self.app.update_activity(f"SAMPLING: {count}/{total}", progress)
+            await asyncio.sleep(0.05)
+
         if count > 0:
-            self.app.notify(f"Created {count} sample assets.")
+            self.app.update_activity(f"FINISHED: CREATED {count} SAMPLES")
+            self.refresh_library()
+        else:
+            self.app.update_activity("IDLE", 0)
+    @work(exclusive=True)
+    async def action_make_song(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT ASSETS FIRST")
+            return
+
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"): table.selected_rows.clear()
+
+        total = len(ids)
+        count = 0
+        self.app.update_activity(f"PROMOTING SONGS...", 0)
+
+        for i, asset_id in enumerate(ids):
+            try:
+                self.app.library_engine.create_song_from_audio(asset_id)
+                count += 1
+            except Exception as e:
+                self.app.notify(f"Song promotion failed for {asset_id}: {str(e)}", severity="error")
+                continue
+
+            progress = ((i + 1) / total) * 100
+            self.app.update_activity(f"SONGS: {count}/{total}", progress)
+            await asyncio.sleep(0.05)
+
+        if count > 0:
+            self.app.update_activity(f"FINISHED: PROMOTED {count} SONGS")
+            self.refresh_library()
+        else:
+            self.app.update_activity("IDLE", 0)
+
+    @work(exclusive=True, thread=True)
+    async def action_separate_stems(self) -> None:
+        ids = self._get_selected_ids()
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT ASSETS FIRST")
+            return
+
+        table = self.query_one("#library-table", DataTable)
+        if hasattr(table, "selected_rows"): table.selected_rows.clear()
+
+        total = len(ids)
+        count = 0
+        self.app.update_activity(f"QUEUING STEMS...", 0)
+
+        for i, asset_id in enumerate(ids):
+            # We run this in a thread via @work(thread=True)
+            # but run_stems itself is blocking.
+            try:
+                result = self.app.dispatcher.run_stems(asset_id)
+                if result.success:
+                    count += 1
+                else:
+                    self.app.notify(f"Stems failed for {asset_id}: {result.error_message}", severity="error")
+            except Exception as e:
+                self.app.notify(f"Stems initiation failed for {asset_id}: {str(e)}", severity="error")
+                continue
+
+            # After each asset, update overall batch progress
+            progress = ((i + 1) / total) * 100
+            self.app.update_activity(f"STEMS BATCH: {count}/{total}", progress)
+
+        if count > 0:
+            self.app.update_activity("IDLE")
             self.refresh_library()
 
     def action_downgrade_beat(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         
         table = self.query_one("#library-table", DataTable)
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
@@ -1197,59 +1455,43 @@ class LibraryTab(Vertical):
                 self.app.notify(f"Downgrade failed for {asset_id}: {str(e)}", severity="error")
                 continue
         if count > 0:
-            self.app.notify(f"Downgraded {count} beats to raw audio.")
+            self.app.update_activity(f"FINISHED: DOWNGRADED {count} BEATS")
             self.refresh_library()
 
     def action_empty_trash(self) -> None:
         def on_confirm(confirmed: bool) -> None:
             if confirmed:
                 count = self.app.library_engine.empty_trash()
-                self.app.notify(f"Trash emptied: {count} items removed.")
+                self.app.update_activity(f"TRASH EMPTIED: {count} ITEMS")
         self.app.push_screen(ConfirmModal("Are you sure? This will permanently delete all files in the trash."), on_confirm)
-
-    def action_manage_collection(self) -> None:
-        ids = self._get_selected_ids()
-        if not ids: return self.app.notify("Select assets to manage their collection", severity="warning")
-        
-        # Determine shared type and current collection
-        assets = [a for a in self.app.library_engine.get_assets() if str(a.get('id')) in ids]
-        if not assets: return
-        
-        # Use type of first selected
-        a_type = assets[0].get('asset_type', assets[0].get('type', 'raw'))
-        if a_type not in ['beat', 'sample']:
-            return self.app.notify("Collections only apply to Beats and Samples.", severity="warning")
-            
-        col_view = self.query_one("#inspector-col-view")
-        col_view.asset_ids = ids
-        col_view.asset_type = a_type
-        # If single item, show its current collection
-        col_view.current_collection_id = assets[0].get('collection_id') if len(ids) == 1 else None
-        
-        self.show_inspector_tab("collection")
 
     def action_restore_trash(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("Select a BEAT to restore to.", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: SELECT A TARGET BEAT")
+            return
         
         target_id = ids[0]
         asset = next((a for a in self.app.library_engine.get_assets() if str(a.get('id')) == target_id), None)
         if not asset or asset.get('asset_type') != AssetType.BEAT:
-            return self.app.notify("Please select a BEAT asset as the target.", severity="error")
+            self.app.update_activity("ERROR: TARGET MUST BE A BEAT")
+            return
             
         trash_dir = self.app.library_engine.trash_dir
         if not os.path.exists(trash_dir):
-            return self.app.notify("Trash is empty.", severity="warning")
+            self.app.update_activity("TRASH IS EMPTY")
+            return
             
         trash_items = [item for item in os.listdir(trash_dir) if os.path.isdir(os.path.join(trash_dir, item))]
         if not trash_items:
-            return self.app.notify("Trash is empty.", severity="warning")
+            self.app.update_activity("TRASH IS EMPTY")
+            return
             
         def on_trash_selected(trash_name: str | None) -> None:
             if trash_name:
                 try:
                     self.app.library_engine.restore_from_trash(trash_name, target_id)
-                    self.app.notify(f"Restored beat state for {asset['name']}")
+                    self.app.update_activity(f"RESTORED: {asset['name']}")
                     self.refresh_library()
                 except Exception as e:
                     self.app.notify(f"Restore failed: {str(e)}", severity="error")
@@ -1264,7 +1506,8 @@ class LibraryTab(Vertical):
         others = [a for a in selected if a.get('asset_type') != 'beat']
         
         if not beats or not others: 
-            return self.app.notify("Select one BEAT and at least one other asset to link.", severity="warning")
+            self.app.update_activity("ERROR: SELECT ONE BEAT AND OTHER ASSETS")
+            return
             
         beat_id = beats[0]['id']
         linked_count = 0
@@ -1286,7 +1529,7 @@ class LibraryTab(Vertical):
                     linked_count += 1
         
         if linked_count > 0:
-            self.app.notify(f"Linked {linked_count} assets to {beats[0]['name']}")
+            self.app.update_activity(f"LINKED {linked_count} ASSETS TO {beats[0]['name']}")
             self.refresh_library()
 
     def action_rename_asset(self) -> None:
@@ -1319,21 +1562,23 @@ class LibraryTab(Vertical):
 
     def action_delete_asset(self) -> None:
         ids = self._get_selected_ids()
-        if not ids: return self.app.notify("No assets selected", severity="warning")
+        if not ids: 
+            self.app.update_activity("ERROR: NO ASSETS SELECTED")
+            return
         table = self.query_one("#library-table", DataTable)
         if hasattr(table, "selected_rows"): table.selected_rows.clear()
         deleted_count = 0
         for asset_id in ids:
             if self.app.library_engine.delete_asset(asset_id): deleted_count += 1
         if deleted_count > 0:
-            self.app.notify(f"Removed {deleted_count} assets from library.")
+            self.app.update_activity(f"REMOVED {deleted_count} ASSETS")
             self.refresh_library()
 
     def action_sync_library(self) -> None:
-        self.app.notify("Synchronizing with disk...")
+        self.app.update_activity("SYNCHRONIZING...")
         removed = self.app.library_engine.sync_library_with_disk()
         if removed > 0: self.app.notify(f"Cleaned {removed} missing files.", severity="warning")
-        else: self.app.notify("Library is synchronized.")
+        else: self.app.update_activity("LIBRARY SYNCHRONIZED")
         self.refresh_library()
 
     def action_select_all(self) -> None:
@@ -1343,7 +1588,6 @@ class LibraryTab(Vertical):
             asset_id = str(row_key.value).replace("row_", "")
             table.selected_rows.add(asset_id)
             table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
-        self.app.notify("All items selected.")
 
     def action_deselect_all(self) -> None:
         table = self.query_one("#library-table", DataTable)
@@ -1351,12 +1595,44 @@ class LibraryTab(Vertical):
             table.selected_rows.clear()
             for row_key in table.rows:
                 table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
-        self.app.notify("All items deselected.")
+
+    def action_clear_selection(self) -> None:
+        """Clear all selected rows and hide inline editor if active."""
+        inp = self.query_one("#inline-editor", Input)
+        if not inp.has_class("hidden"):
+            inp.add_class("hidden")
+            self.query_one("#library-table", DataTable).focus()
+            self.editing_asset_id = None
+            return
+            
+        self.action_deselect_all()
+
+    def action_focus_search(self) -> None:
+        """Instantly focus the library search input."""
+        self.query_one("#lib-filter-search", Input).focus()
+
+    def action_invert_selection(self) -> None:
+        """Invert the current selection of library rows."""
+        table = self.query_one("#library-table", DataTable)
+        if not hasattr(table, "selected_rows"):
+            table.selected_rows = set()
+        
+        all_ids = {str(a.get('id')) for a in self.assets}
+        new_selection = all_ids - table.selected_rows
+        table.selected_rows = new_selection
+        
+        # Update markers
+        for row_key in table.rows:
+            asset_id = str(row_key.value).replace("row_", "")
+            marker = "[*]" if asset_id in table.selected_rows else "[ ]"
+            table.update_cell(row_key, list(table.columns.keys())[0], marker)
+        
+        self.app.update_activity("SELECTION INVERTED")
 
     def action_stop(self) -> None:
         self.app.audio_engine.stop_preview()
         self.currently_playing_id = None
-        self.app.notify("Playback stopped.")
+        self.app.update_activity("PLAYBACK STOPPED")
 
 class SafeDict(dict):
     """A dictionary that returns the key in curly braces if it's missing, for safe .format()"""
@@ -1442,7 +1718,7 @@ class YoutubeTab(Vertical):
         
         self._last_live_fetch = 0
         self.refresh_table()
-        self.fetch_live_videos()
+        # self.fetch_live_videos()  # Removed to avoid intrusive auth on startup
         self.load_defaults()
 
     def load_defaults(self) -> None:
@@ -1452,12 +1728,13 @@ class YoutubeTab(Vertical):
         self.query_one("#yt-def-tags", Input).value = defaults.get("default_tags", "")
 
     @on(Button.Pressed, "#btn-yt-save-defaults")
-    def save_defaults(self) -> None:
+    def handle_save_defaults(self) -> None:
         title = self.query_one("#yt-def-title", Input).value
         desc = self.query_one("#yt-def-desc", TextArea).text
         tags = self.query_one("#yt-def-tags", Input).value
         self.app.library_engine.state_manager.set_yt_defaults(title, desc, tags)
-        self.app.notify("YouTube defaults saved.")
+        self.app.update_activity("YOUTUBE DEFAULTS SAVED")
+
 
     @work(exclusive=True)
     async def fetch_live_videos(self, force: bool = False) -> None:
@@ -1467,10 +1744,9 @@ class YoutubeTab(Vertical):
         if not force and (now - getattr(self, "_last_live_fetch", 0)) < 300:
             return
 
+        self.app.update_activity("FETCHING YT VIDEOS...")
         try:
-            from app.core.youtube_engine import YouTubeEngine
-            # We assume YouTubeEngine is available through app or initialized here
-            yt_engine = YouTubeEngine(os.path.join(BASE_DIR, "client_secrets.json"))
+            yt_engine = self.app.dispatcher.youtube_engine
             # Use asyncio.to_thread for blocking call
             videos = await asyncio.to_thread(yt_engine.get_live_channel_videos)
             
@@ -1484,8 +1760,12 @@ class YoutubeTab(Vertical):
                         v.get('publishedAt', '')[:10]
                     )
                 self._last_live_fetch = now
+                self.app.update_activity("YT VIDEOS FETCHED")
+            else:
+                self.app.update_activity("NO YT VIDEOS FOUND")
         except Exception as e:
             self.app.notify(f"Error fetching live videos: {str(e)}", severity="error")
+            self.app.update_activity("YT FETCH FAILED")
 
     def apply_templates(self, asset_id: str) -> None:
         """Apply metadata templates to the publishing fields."""
@@ -1494,12 +1774,13 @@ class YoutubeTab(Vertical):
             asset = self.app.library_engine.get_asset(asset_id)
             if not asset: return
             
+            meta = asset.get('metadata', {})
             metadata = {
                 "name": asset.get("name", "N/A"),
-                "bpm": asset.get("bpm", "N/A"),
-                "key": asset.get("key", "N/A"),
-                "genre": asset.get("genre", "N/A"),
-                "mood": asset.get("mood", "N/A")
+                "bpm": asset.get("bpm", meta.get("bpm", "N/A")),
+                "key": asset.get("key", meta.get("key", "N/A")),
+                "genre": meta.get("genre", "N/A"),
+                "mood": meta.get("mood", "N/A")
             }
             
             defaults = self.app.library_engine.state_manager.get_yt_defaults()
@@ -1509,7 +1790,7 @@ class YoutubeTab(Vertical):
             self.query_one("#yt-desc", TextArea).text = defaults.get("desc_template", "").format_map(safe_meta)
             self.query_one("#yt-tags", Input).value = defaults.get("default_tags", "")
             
-            self.app.notify(f"Templates applied for {metadata['name']}")
+            self.app.update_activity(f"TEMPLATES APPLIED: {metadata['name']}")
         except Exception as e:
             self.app.notify(f"Template Error: {str(e)}", severity="error")
 
@@ -1534,6 +1815,12 @@ class YoutubeTab(Vertical):
         self.fetch_live_videos(force=True)
 
     @on(Button.Pressed, "#btn-yt-delete")
+    @on(Button.Pressed, "#btn-yt-refresh")
+    def handle_refresh(self) -> None:
+        self.refresh_table()
+        self.fetch_live_videos(force=True)
+
+    @on(Button.Pressed, "#btn-yt-delete")
     def handle_delete(self) -> None:
         try:
             table = self.query_one("#yt-uploads-table", DataTable)
@@ -1543,7 +1830,30 @@ class YoutubeTab(Vertical):
                     upload_id = row_keys[table.cursor_row]
                     self.app.library_engine.state_manager.delete_yt_upload(upload_id)
                     self.refresh_table()
-                    self.app.notify("Upload entry removed.")
+                    self.app.update_activity("UPLOAD ENTRY REMOVED")
+        except: pass
+
+class ActivityFooter(Horizontal):
+    """A footer area for showing current background tasks and progress."""
+    progress = reactive(0.0)
+    status = reactive("IDLE")
+
+    def compose(self) -> ComposeResult:
+        yield Label("ACTIVITY:", id="activity-label")
+        yield Label("IDLE", id="activity-status")
+        yield Label("", id="activity-progress-text")
+
+    def watch_progress(self, value: float) -> None:
+        try:
+            bar_width = 20
+            filled = int((value / 100) * bar_width)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            self.query_one("#activity-progress-text", Label).update(f"[{bar}] {value:3.0f}%")
+        except: pass
+
+    def watch_status(self, value: str) -> None:
+        try:
+            self.query_one("#activity-status", Label).update(value)
         except: pass
 
 class BeatManagerApp(App):
@@ -1576,15 +1886,27 @@ class BeatManagerApp(App):
         self.library_engine = LibraryManagerEngine(db_path=db_path)
         self.audio_engine = AudioEngine()
         self.dispatcher = TaskDispatcher(BASE_DIR)
+        self.dispatcher.app = self
 
     def compose(self) -> ComposeResult:
         yield Header()
         with TabbedContent(id="main-tabs"):
             with TabPane("LIBRARY", id="pane-library"): yield LibraryTab()
             with TabPane("YOUTUBE", id="pane-youtube"): yield YoutubeTab()
-        with Horizontal(id="footer-bar"):
-            yield Button("IMPORT [Ctrl+I]", id="btn-toggle-import")
-            yield Footer()
+        
+        with Vertical(id="app-footer-container"):
+            yield ActivityFooter(id="global-activity-footer")
+            with Horizontal(id="footer-bar"):
+                yield Button("IMPORT [Ctrl+I]", id="btn-toggle-import")
+                yield Footer()
+
+    def update_activity(self, status: str, progress: float = 0.0) -> None:
+        """Update the global activity footer."""
+        try:
+            footer = self.query_one("#global-activity-footer", ActivityFooter)
+            footer.status = status
+            footer.progress = progress
+        except: pass
 
     def action_toggle_import(self) -> None:
         try:
@@ -1603,7 +1925,7 @@ class BeatManagerApp(App):
     def handle_toggle_import(self) -> None: self.action_toggle_import()
 
     def on_mount(self) -> None:
-        self.notify("System Online", title="BeatManager")
+        pass # Removed System Online notification
 
     def on_error(self, error: Exception) -> None:
         import traceback

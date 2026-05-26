@@ -19,22 +19,14 @@ class AssetType(str, Enum):
     RAW = "raw"
     BEAT = "beat"
     SAMPLE = "sample"
+    SONG = "song"
     COVER = "cover"
     PROJECT = "project"
-
-class CollectionType(str, Enum):
-    BEAT = "beat"
-    SAMPLE = "sample"
+    SONG_STEMS = "song_stems"
 
 class SampleType(str, Enum):
     LOOP = "loop"
     ONE_SHOT = "one-shot"
-
-class Collection(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the collection")
-    name: str = Field(..., description="Name of the collection")
-    type: CollectionType = Field(..., description="Type of collection (beat or sample)")
-    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 class LibraryAsset(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="Unique identifier for the asset")
@@ -44,8 +36,9 @@ class LibraryAsset(BaseModel):
     path: str = Field(..., description="Absolute path to the asset folder or file")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata for the asset")
+    tags: List[str] = Field(default_factory=list, description="List of tags for organization")
     in_trash: bool = Field(default=False, description="Whether the asset is currently in the trash")
-    collection_id: Optional[str] = Field(None, description="ID of the collection this asset belongs to")
+    stems_id: Optional[str] = Field(None, description="ID of the associated stems asset if separated")
 
 class AudioAsset(LibraryAsset):
     data_type: AssetDataType = AssetDataType.AUDIO
@@ -61,12 +54,21 @@ class ImageAsset(LibraryAsset):
     width: Optional[int] = None
     height: Optional[int] = None
 
+class SongAsset(LibraryAsset):
+    data_type: AssetDataType = AssetDataType.AUDIO
+    asset_type: AssetType = AssetType.SONG
+    versions: Dict[str, str] = Field(default_factory=dict, description="Map of version name to filename")
+    notes_file: str = "notes.md"
+    bpm: Optional[float] = None
+    key: Optional[str] = None
+    duration: Optional[float] = None
+
 class BeatAsset(LibraryAsset):
     data_type: AssetDataType = AssetDataType.AUDIO
     asset_type: AssetType = AssetType.BEAT
     # Links to audio files within the beat folder
     versions: Dict[str, str] = Field(default_factory=dict, description="Map of version name to filename (e.g. {'main': 'beat.wav'})")
-    notes_file: str = "notes.txt"
+    notes_file: str = "notes.md"
     bpm: Optional[float] = None
     key: Optional[str] = None
     duration: Optional[float] = None

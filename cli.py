@@ -41,6 +41,13 @@ def main():
     strat_parser.add_argument("--compile", action="store_true")
     strat_parser.add_argument("--show", action="store_true")
 
+    # Stems Command
+    stems_parser = subparsers.add_parser("stems", help="Separate audio into stems")
+    stems_parser.add_argument("--id", required=True, help="Asset ID to separate")
+
+    # Doctor Command
+    subparsers.add_parser("doctor", help="Check system health and dependencies")
+
     # Status Command
     subparsers.add_parser("status", help="Show current state tasks")
 
@@ -117,6 +124,46 @@ def main():
         if args.show:
             print("STRATEGY:", json.dumps(sm.get_strategy(), indent=2))
             print("PLAN:", json.dumps(sm.get_plan(), indent=2))
+
+    elif args.command == "stems":
+        print(f"Starting stem separation for asset {args.id}...")
+        result = dispatcher.run_stems(args.id)
+        if result.success:
+            print(f"SUCCESS: Stems created with ID: {result.output_path}")
+        else:
+            print(f"FAILED: {result.error_message}")
+
+    elif args.command == "doctor":
+        print("--- BeatManager Doctor ---")
+        import shutil
+        import subprocess
+        
+        # Check FFmpeg
+        ffmpeg = shutil.which("ffmpeg")
+        print(f"FFmpeg: {'FOUND' if ffmpeg else 'NOT FOUND'} ({ffmpeg or 'N/A'})")
+        
+        # Check Demucs
+        demucs = shutil.which("demucs")
+        print(f"Demucs: {'FOUND' if demucs else 'NOT FOUND'} ({demucs or 'N/A'})")
+        
+        # Check Torch
+        try:
+            import torch
+            import torchcodec
+            print(f"PyTorch: FOUND (v{torch.__version__}, CUDA: {torch.cuda.is_available()}, codec: FOUND)")
+        except ImportError as e:
+            if "torchcodec" in str(e):
+                print(f"PyTorch: FOUND (v{torch.__version__}), but torchcodec is MISSING")
+            else:
+                print("PyTorch: NOT FOUND")
+            
+        # Check DB
+        db_exists = os.path.exists(dispatcher.state.db_path)
+        print(f"Database: {'OK' if db_exists else 'MISSING'} ({dispatcher.state.db_path})")
+        
+        # Check Paths
+        lib_root = dispatcher.library_engine.library_root
+        print(f"Library Root: {'OK' if os.path.exists(lib_root) else 'MISSING'} ({lib_root})")
 
     elif args.command == "status":
         tasks = dispatcher.state.get_tasks()
