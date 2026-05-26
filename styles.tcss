@@ -17,6 +17,7 @@ $highlight: #91abec;
 #library-header {
     height: auto;
     background: $panel-bg;
+    padding-bottom: 1;
 }
 
 #lib-header-row-tabs {
@@ -27,10 +28,12 @@ $highlight: #91abec;
 #lib-header-row-stats {
     height: 1;
     background: $bg;
-    content-align: center middle;
+    layout: horizontal;
+    align: left middle;
 }
 
 #lib-count-status {
+    width: 1fr;
     color: $highlight;
     text-style: bold italic;
 }
@@ -39,7 +42,12 @@ $highlight: #91abec;
     height: 1;
     margin: 0;
     padding: 0 1;
-    align: left middle;
+    layout: horizontal;
+}
+
+#lib-header-tools {
+    width: auto;
+    align: right middle;
 }
 
 #library-body-split {
@@ -73,20 +81,14 @@ $highlight: #91abec;
     border-top: tall $highlight;
 }
 
-#activity-label {
-    width: 12;
-    color: $highlight;
-    text-style: bold;
-}
-
 #activity-status {
-    width: 40;
+    width: auto;
     color: $text;
     text-style: bold;
 }
 
 #activity-progress-text {
-    width: 40;
+    width: auto;
     color: $success;
     margin-left: 2;
     text-style: bold;
@@ -312,28 +314,28 @@ LibraryTab {
     padding: 0 1;
 }
 
-.header-icon-btn {
-    width: 4;
-    min-width: 4;
+.header-text-btn {
+    width: auto;
+    min-width: 6;
     height: 1;
-    margin: 0 1 0 0;
-    padding: 0;
+    margin: 0 0 0 1;
+    padding: 0 1;
     border: none;
     background: transparent;
-    color: $text;
+    color: $text-muted;
 }
 
-.header-icon-btn:hover {
-    background: $highlight 30%;
+.header-text-btn:hover {
     color: $highlight;
+    text-style: bold;
 }
 
 .header-action-btn {
     width: 8;
     min-width: 8;
     height: 1;
-    margin: 0 1 0 0;
-    padding: 0;
+    margin: 0 0 0 1;
+    padding: 0 1;
     border: none;
     background: transparent;
     color: $primary;
@@ -511,45 +513,10 @@ WaveformDisplay {
     border: none;
     background: $bg 50%;
 }
-#inspector-footer {
-    height: 6;
-    dock: bottom;
-    padding: 0 1;
-    background: $panel-bg;
-    border-top: solid $panel_border;
-}
 
-#lbl-audio-version {
-    color: $highlight;
-    text-style: bold;
-    margin: 0 0 0 1;
-    height: 1;
-}
-
-#inspector-footer-row {
-    height: 3;
-    align: left middle;
-}
-
-#audio-source-select {
-    width: 1fr;
-    height: 3;
-    margin: 0;
-    border: tall $white 30%;
-    background: $bg;
-}
-
-#btn-inspector-save {
-    width: 10;
-    height: 3;
-    margin-left: 1;
-    border: none;
-    background: $success 20%;
-    color: $success;
-}
-
-#btn-inspector-save:hover {
-    background: $success 40%;
+#inspector-versions-list {
+    height: 1fr;
+    background: transparent;
 }
 
 #library-table {

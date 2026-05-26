@@ -534,15 +534,16 @@ class LibraryTab(Vertical):
             
             with Horizontal(id="lib-header-row-stats"):
                 yield Label("0 ITEMS", id="lib-count-status")
+                with Horizontal(id="lib-header-tools"):
+                    yield Button("IMPORT", id="btn-header-import", classes="header-text-btn")
+                    yield Button("EXPORT", id="btn-header-export", classes="header-text-btn")
+                    yield Button("MOVE", id="btn-header-move", classes="header-text-btn")
+                    yield Button("SYNC", id="btn-header-sync", classes="header-text-btn")
+                    yield Button("TRASH", id="btn-header-empty-trash", classes="header-text-btn")
+                    yield Button("EDIT", id="btn-header-edit", classes="header-action-btn")
                 
             with Horizontal(id="lib-header-row-search"):
                 yield Input(placeholder="Search assets...", id="lib-filter-search")
-                yield Button("📥", id="btn-header-import", classes="header-icon-btn")
-                yield Button("📤", id="btn-header-export", classes="header-icon-btn")
-                yield Button("📂", id="btn-header-move", classes="header-icon-btn")
-                yield Button("🔄", id="btn-header-sync", classes="header-icon-btn")
-                yield Button("🧹", id="btn-header-empty-trash", classes="header-icon-btn")
-                yield Button("EDIT", id="btn-header-edit", classes="header-action-btn")
         
         with Horizontal(id="library-body-split"):
             with Vertical(id="library-table-container"):
@@ -568,11 +569,8 @@ class LibraryTab(Vertical):
                                     yield Input(id="meta-bpm")
                                     yield Label("Tags")
                                     yield Input(placeholder="tag1, tag2...", id="meta-tags")
-                    with Vertical(id="inspector-footer"):
-                        yield Label("ACTIVE AUDIO VERSION", id="lbl-audio-version")
-                        with Horizontal(id="inspector-footer-row"):
-                            yield Select([], id="audio-source-select", prompt="SELECT...")
-                            yield Button("SAVE", id="btn-inspector-save", variant="success")
+                        with TabPane("VERSIONS", id="tab-versions"):
+                            yield ListView(id="inspector-versions-list")
 
                 yield ImportOverlay(id="inspector-import-view", classes="hidden")
                 yield ActionMenuOverlay(id="inspector-action-view", classes="hidden")
@@ -908,22 +906,17 @@ class LibraryTab(Vertical):
             self.query_one("#meta-bpm", Input).value = bpm
             self.query_one("#meta-tags", Input).value = tags
             
-            # Update audio versions selector
-            source_select = self.query_one("#audio-source-select", Select)
-            audio_options = []
-            
+            # Populate versions list
+            versions_list = self.query_one("#inspector-versions-list", ListView)
+            versions_list.clear()
             versions = resolved.get("versions", [])
-            if versions:
-                for v in versions:
-                    audio_options.append((v["name"], v["path"]))
+            for i, v in enumerate(versions):
+                item = ListItem(Label(v["name"]))
+                item.audio_path = v["path"]
+                versions_list.append(item)
             
-            source_select.set_options(audio_options)
-            
-            # Default to the first version (usually 'Original (Raw)')
-            if audio_options:
-                source_select.value = audio_options[0][1]
-            else:
-                source_select.value = Select.BLANK
+            # Keep a reference to versions for fallback playback
+            inspector.asset_versions = versions
 
             inspector.asset_id = asset_id
             if hasattr(inspector, 'bulk_ids'): del inspector.bulk_ids
@@ -946,8 +939,8 @@ class LibraryTab(Vertical):
             inspector = self.query_one("#inspector-info-view")
             notes_area = self.query_one("#inspector-notes", TextArea)
             
-            # Clear audio sources in bulk mode
-            self.query_one("#audio-source-select", Select).set_options([])
+            # Clear versions list in bulk mode
+            self.query_one("#inspector-versions-list", ListView).clear()
             
             assets = []
             for aid in asset_ids:
@@ -1003,14 +996,14 @@ class LibraryTab(Vertical):
         finally:
             self._populating_inspector = False
 
-    @on(Select.Changed, "#audio-source-select")
-    def handle_audio_source_changed(self, event: Select.Changed) -> None:
-        if event.value and event.value != Select.BLANK and not getattr(self, "_populating_inspector", False):
-            # Restart preview with the new source if something is already playing
+    @on(ListView.Selected, "#inspector-versions-list")
+    def handle_version_selected(self, event: ListView.Selected) -> None:
+        if not getattr(self, "_populating_inspector", False):
+            # Highlight to indicate selection
+            # The item itself is already highlighted by ListView
             if self.currently_playing_id:
                 self.action_preview()
 
-    @on(Button.Pressed, "#btn-inspector-save")
     def handle_inspector_save(self, is_auto: bool = False) -> None:
         inspector = self.query_one("#inspector-info-view")
         
@@ -1271,9 +1264,13 @@ class LibraryTab(Vertical):
             self.app.notify(f"Asset {asset_id} not found", severity="error")
             return
 
-        # Get audio path from selector (it stores absolute paths)
-        source_select = self.query_one("#audio-source-select", Select)
-        audio_path = source_select.value if source_select.value and source_select.value != Select.BLANK else None
+        # Get audio path from selector
+        versions_list = self.query_one("#inspector-versions-list", ListView)
+        audio_path = None
+        
+        if versions_list.index is not None and versions_list.index >= 0:
+            selected_item = versions_list.children[versions_list.index]
+            audio_path = getattr(selected_item, "audio_path", None)
 
         if not audio_path:
             # Fallback to the first version if nothing selected
@@ -1842,21 +1839,29 @@ class ActivityFooter(Horizontal):
     status = reactive("IDLE")
 
     def compose(self) -> ComposeResult:
-        yield Label("ACTIVITY:", id="activity-label")
-        yield Label("IDLE", id="activity-status")
+        yield Label("", id="activity-status")
         yield Label("", id="activity-progress-text")
 
     def watch_progress(self, value: float) -> None:
         try:
-            bar_width = 20
-            filled = int((value / 100) * bar_width)
-            bar = "█" * filled + "░" * (bar_width - filled)
-            self.query_one("#activity-progress-text", Label).update(f"[{bar}] {value:3.0f}%")
+            prog_label = self.query_one("#activity-progress-text", Label)
+            if 0 < value < 100:
+                bar_width = 20
+                filled = int((value / 100) * bar_width)
+                bar = "█" * filled + "░" * (bar_width - filled)
+                prog_label.update(f"[{bar}] {value:3.0f}%")
+            else:
+                prog_label.update("")
         except: pass
 
     def watch_status(self, value: str) -> None:
         try:
-            self.query_one("#activity-status", Label).update(value)
+            status_label = self.query_one("#activity-status", Label)
+            if value == "IDLE":
+                status_label.update("")
+                self.progress = 0.0
+            else:
+                status_label.update(value)
         except: pass
 
 class BeatManagerApp(App):
