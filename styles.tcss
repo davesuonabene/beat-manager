@@ -938,3 +938,73 @@ ConfirmModal {
     border: tall $border;
     background: $bg;
 }
+
+/* Export Modal */
+ExportScreen {
+    align: center middle;
+}
+
+#export-container {
+    width: 80;
+    height: 38;
+    background: $panel-bg;
+    border: tall $border;
+    padding: 0;
+}
+
+#export-container .panel_title {
+    background: $border;
+    color: $highlight;
+    margin: 0;
+    padding: 0 1;
+    height: 1;
+}
+
+#export-path-tree {
+    height: 1fr;
+    border: none;
+    background: $bg;
+    margin: 0;
+}
+
+#export-folder-name-container {
+    height: 1;
+    background: $border;
+    padding: 0 1;
+    layout: horizontal;
+    align: left middle;
+}
+
+#export-folder-name-container Label {
+    width: auto;
+    color: $text-muted;
+}
+
+#export-parent-name {
+    width: 1fr;
+    background: transparent;
+    border: none;
+    height: 1;
+}
+
+#export-buttons {
+    height: 1;
+    background: $border;
+    padding: 0;
+}
+
+#export-buttons Button {
+    width: 1fr;
+    height: 1;
+    margin: 0;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+#export-buttons Button:hover {
+    background: $highlight 20%;
+}
+
+#export-buttons Button.-variant-success { color: $success; }
+#export-buttons Button.-variant-error { color: $error; }

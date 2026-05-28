@@ -20,6 +20,7 @@ class AssetType(str, Enum):
     BEAT = "beat"
     SAMPLE = "sample"
     SONG = "song"
+    RECORDING = "recording"
     COVER = "cover"
     PROJECT = "project"
     SONG_STEMS = "song_stems"
@@ -61,6 +62,13 @@ class SongAsset(LibraryAsset):
     notes_file: str = "notes.md"
     bpm: Optional[float] = None
     key: Optional[str] = None
+    duration: Optional[float] = None
+
+class RecordingAsset(LibraryAsset):
+    data_type: AssetDataType = AssetDataType.AUDIO
+    asset_type: AssetType = AssetType.RECORDING
+    versions: Dict[str, str] = Field(default_factory=dict, description="Map of version name to filename")
+    notes_file: str = "notes.md"
     duration: Optional[float] = None
 
 class BeatAsset(LibraryAsset):

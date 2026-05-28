@@ -28,6 +28,9 @@ assets/library/trash/
 temp_videos/
 *.log
 *.bak
+*.txt
+.ssh_client_env
+manage.sh
 
 # Obsidian
 .obsidian/

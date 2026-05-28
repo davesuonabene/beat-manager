@@ -103,8 +103,16 @@ class StemsEngine:
 
             if os.path.exists(output_folder):
                 shutil.rmtree(output_folder)
+            os.makedirs(output_folder)
             
-            shutil.move(demucs_output, output_folder)
+            # Rename and move individual stems: <asset_id>_<instrument>.wav
+            for sf in os.listdir(demucs_output):
+                if sf.endswith(('.wav', '.mp3')):
+                    ext = os.path.splitext(sf)[1]
+                    instrument = os.path.splitext(sf)[0]
+                    new_filename = f"{asset_id}_{instrument}{ext}"
+                    shutil.move(os.path.join(demucs_output, sf), os.path.join(output_folder, new_filename))
+
             shutil.rmtree(temp_dir)
             
             logger.info(f"Successfully separated stems for {asset_id} to {output_folder}")

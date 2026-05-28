@@ -96,10 +96,18 @@ class StateManager:
                 versions TEXT,
                 metadata TEXT,
                 tags TEXT,
-                stems_id TEXT
+                stems_id TEXT,
+                duration REAL
             )
         """)
         
+        # Migration: Add duration column if it doesn't exist
+        try:
+            cursor.execute("SELECT duration FROM library_assets LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Adding duration column to library_assets table...")
+            cursor.execute("ALTER TABLE library_assets ADD COLUMN duration REAL DEFAULT 0")
+
         # Migration: Add tags column if it doesn't exist
         try:
             cursor.execute("SELECT tags FROM library_assets LIMIT 1")
@@ -190,6 +198,7 @@ class StateManager:
                     d['versions'] = json.loads(d.get('versions') or '{}')
                     d['metadata'] = json.loads(d.get('metadata') or '{}')
                     d['tags'] = json.loads(d.get('tags') or '[]')
+                    # duration is already a float (REAL)
                     res.append(d)
                 return res
             def get(self, query=None, doc_id=None):
@@ -211,9 +220,9 @@ class StateManager:
             def insert(self, data):
                 cursor = self.m.conn.cursor()
                 cursor.execute(
-                    "INSERT OR REPLACE INTO library_assets (id, name, path, data_type, asset_type, created_at, versions, metadata, tags, stems_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO library_assets (id, name, path, data_type, asset_type, created_at, versions, metadata, tags, stems_id, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (data.get('id'), data.get('name'), data.get('path'), data.get('data_type'), data.get('asset_type'),
-                     data.get('created_at'), json.dumps(data.get('versions', {})), json.dumps(data.get('metadata', {})), json.dumps(data.get('tags', [])), data.get('stems_id'))
+                     data.get('created_at'), json.dumps(data.get('versions', {})), json.dumps(data.get('metadata', {})), json.dumps(data.get('tags', [])), data.get('stems_id'), data.get('duration', 0))
                 )
                 self.m.conn.commit()
             def update(self, updates, query):

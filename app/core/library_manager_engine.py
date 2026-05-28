@@ -5,14 +5,18 @@ import re
 import json
 import logging
 import yaml
+import subprocess
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from tinydb import Query
 import mutagen
+from mutagen.wave import WAVE
+from mutagen.mp3 import MP3
+from mutagen.flac import FLAC
 from app.core.state_manager import StateManager
 from app.models.schemas import (
     LibraryAsset, AssetDataType, AssetType, 
-    AudioAsset, BeatAsset, ImageAsset, SongAsset
+    AudioAsset, BeatAsset, ImageAsset, SongAsset, RecordingAsset
 )
 
 # Project paths
@@ -41,6 +45,23 @@ class LibraryManagerEngine:
         s = re.sub(r'[^a-zA-Z0-9\.\-_]', '_', name)
         s = re.sub(r'_+', '_', s)
         return s.strip('_')
+
+    def _get_audio_duration(self, path: str) -> float:
+        """Extract duration in seconds from an audio file."""
+        if not path or not os.path.exists(path): return 0.0
+        try:
+            ext = os.path.splitext(path)[1].lower()
+            audio = None
+            if ext == '.wav': audio = WAVE(path)
+            elif ext == '.mp3': audio = MP3(path)
+            elif ext == '.flac': audio = FLAC(path)
+            else: audio = mutagen.File(path)
+            
+            if audio is not None and hasattr(audio, 'info') and hasattr(audio.info, 'length'):
+                return float(audio.info.length)
+        except Exception as e:
+            logger.error(f"Failed to get duration for {path}: {e}")
+        return 0.0
 
     def _read_md_metadata(self, md_path: str) -> Dict[str, Any]:
         """Reads metadata from YAML frontmatter in a markdown file."""
@@ -171,13 +192,7 @@ class LibraryManagerEngine:
                  f.write(f"# Notes for {name}\n")
 
         # Extract metadata
-        duration = 0
-        try:
-            audio = mutagen.File(dest_audio_path)
-            if audio and hasattr(audio.info, 'length'):
-                duration = audio.info.length
-        except:
-            pass
+        duration = self._get_audio_duration(dest_audio_path)
 
         asset = AudioAsset(
             id=asset_id,
@@ -246,23 +261,22 @@ class LibraryManagerEngine:
             
         audio_filename = os.path.basename(audio_path)
         
-        # New notes file (renamed from raw notes)
-        new_notes_filename = f"{safe_beat_name}_{asset_id}_notes.md"
-        new_notes_path = os.path.join(self.md_dir, new_notes_filename)
-        
+        # 1. Read existing notes if they exist
+        notes_content = ""
         if audio_doc.get('notes_file'):
             old_notes_path = os.path.join(self.md_dir, audio_doc['notes_file'])
             if os.path.exists(old_notes_path):
-                shutil.move(old_notes_path, new_notes_path)
-        
-        if not os.path.exists(new_notes_path):
-            with open(new_notes_path, 'w') as f:
-                f.write(f"# Notes for {name}\n")
+                try:
+                    with open(old_notes_path, 'r') as nf:
+                        notes_content = nf.read()
+                        # Clean up title
+                        notes_content = re.sub(r"^# Notes for.*?\n", "", notes_content).strip()
+                    os.remove(old_notes_path)
+                except: pass
 
-        # Create the Promoted Markdown file (Master file)
+        # 2. Create the unified project Markdown file
         md_filename = f"{safe_beat_name}_{asset_id}.md"
         md_path = os.path.join(self.md_dir, md_filename)
-        
         initial_tags = []
 
         with open(md_path, 'w') as f:
@@ -270,14 +284,15 @@ class LibraryManagerEngine:
             f.write(f"# {name}\n\n")
             f.write("## Files\n")
             f.write(f"- Audio: [[{audio_filename}]]\n")
-            f.write(f"- Notes: [[{new_notes_filename}]]\n")
+            
+            if notes_content:
+                f.write(f"\n## Notes\n{notes_content}\n")
 
         beat = BeatAsset(
             id=asset_id,
             name=name,
             path=md_path,
             versions={"main": audio_filename},
-            notes_file=new_notes_filename,
             duration=audio_doc.get('duration'),
             bpm=audio_doc.get('bpm'),
             key=audio_doc.get('key'),
@@ -330,7 +345,7 @@ class LibraryManagerEngine:
             if asset.get('notes_file'):
                 res["notes"] = os.path.join(self.md_dir, asset['notes_file'])
                 
-        elif asset.get('asset_type') in (AssetType.BEAT, AssetType.SONG):
+        elif asset.get('asset_type') in (AssetType.BEAT, AssetType.SONG, AssetType.RECORDING):
             # Promoted audio assets use MD file as master
             md_path = asset['path']
             if not md_path.endswith(".md"):
@@ -490,24 +505,24 @@ class LibraryManagerEngine:
         self.assets_table.remove(Query().id == asset_id)
         return True
 
-    def downgrade_beat_to_raw(self, beat_id: str) -> AudioAsset:
-        beat = self.assets_table.get(Query().id == beat_id)
-        if not beat or beat.get('asset_type') != AssetType.BEAT:
-            raise ValueError("Not a beat")
+    def downgrade_to_raw(self, asset_id: str) -> AudioAsset:
+        asset = self.assets_table.get(Query().id == asset_id)
+        if not asset or asset.get('asset_type') not in [AssetType.BEAT, AssetType.SONG, AssetType.RECORDING]:
+            raise ValueError("Not a promoted asset")
         
-        resolved = self.resolve_asset_paths(beat_id)
+        resolved = self.resolve_asset_paths(asset_id)
         audio_path = resolved.get('audio')
         
-        if os.path.exists(beat['path']):
-            os.remove(beat['path'])
+        # Remove the MD file
+        if os.path.exists(asset['path']) and asset['path'].endswith(".md"):
+            os.remove(asset['path'])
             
         raw = AudioAsset(
-            id=beat_id, name=beat['name'], path=audio_path,
+            id=asset_id, name=asset['name'], path=audio_path,
             audio_file=os.path.basename(audio_path),
-            notes_file=beat.get('notes_file'),
-            duration=beat.get('duration'), asset_type=AssetType.RAW
+            duration=asset.get('duration'), asset_type=AssetType.RAW
         )
-        self.assets_table.remove(Query().id == beat_id)
+        self.assets_table.remove(Query().id == asset_id)
         self.assets_table.insert(raw.dict())
         return raw
 
@@ -531,23 +546,22 @@ class LibraryManagerEngine:
 
         audio_filename = os.path.basename(audio_path)
         
-        # New notes file
-        new_notes_filename = f"{safe_song_name}_{asset_id}_notes.md"
-        new_notes_path = os.path.join(self.md_dir, new_notes_filename)
-        
+        # 1. Read existing notes if they exist
+        notes_content = ""
         if audio_doc.get('notes_file'):
             old_notes_path = os.path.join(self.md_dir, audio_doc['notes_file'])
             if os.path.exists(old_notes_path):
-                shutil.move(old_notes_path, new_notes_path)
-        
-        if not os.path.exists(new_notes_path):
-            with open(new_notes_path, 'w') as f:
-                f.write(f"# Notes for {name}\n")
+                try:
+                    with open(old_notes_path, 'r') as nf:
+                        notes_content = nf.read()
+                        # Clean up title
+                        notes_content = re.sub(r"^# Notes for.*?\n", "", notes_content).strip()
+                    os.remove(old_notes_path)
+                except: pass
 
-        # Create the Promoted Markdown file
+        # 2. Create the unified project Markdown file
         md_filename = f"{safe_song_name}_{asset_id}.md"
         md_path = os.path.join(self.md_dir, md_filename)
-        
         initial_tags = []
 
         with open(md_path, 'w') as f:
@@ -555,14 +569,15 @@ class LibraryManagerEngine:
             f.write(f"# {name}\n\n")
             f.write("## Files\n")
             f.write(f"- Audio: [[{audio_filename}]]\n")
-            f.write(f"- Notes: [[{new_notes_filename}]]\n")
+            
+            if notes_content:
+                f.write(f"\n## Notes\n{notes_content}\n")
 
         song = SongAsset(
             id=asset_id,
             name=name,
             path=md_path,
             versions={"main": audio_filename},
-            notes_file=new_notes_filename,
             duration=audio_doc.get('duration'),
             bpm=audio_doc.get('bpm'),
             key=audio_doc.get('key'),
@@ -574,41 +589,73 @@ class LibraryManagerEngine:
         self.assets_table.insert(song.dict())
         return song
 
+    def create_recording_from_audio(self, audio_asset_id: str, recording_name: Optional[str] = None) -> RecordingAsset:
+        """Convert a raw audio asset into a promoted RECORDING represented by a markdown file."""
+        audio_doc = self.assets_table.get(doc_id=audio_asset_id)
+        if not audio_doc:
+            audio_doc = self.assets_table.get(Query().id == audio_asset_id)
+        
+        if not audio_doc or audio_doc.get('asset_type') != AssetType.RAW:
+            raise ValueError("Valid raw audio asset required to create a recording.")
+
+        name = recording_name or audio_doc['name']
+        asset_id = str(uuid.uuid4())[:8]
+        safe_name = self._sanitize_filename(name)
+        
+        audio_path = self.get_audio_path(audio_asset_id)
+        if not audio_path:
+            raise ValueError("Could not locate source audio for this asset.")
+        audio_filename = os.path.basename(audio_path)
+        
+        # 1. Read existing notes if they exist
+        notes_content = ""
+        if audio_doc.get('notes_file'):
+            old_notes_path = os.path.join(self.md_dir, audio_doc['notes_file'])
+            if os.path.exists(old_notes_path):
+                try:
+                    with open(old_notes_path, 'r') as nf:
+                        notes_content = nf.read()
+                        notes_content = re.sub(r"^# Notes for.*?\n", "", notes_content).strip()
+                    os.remove(old_notes_path)
+                except: pass
+
+        # 2. Create the unified project Markdown file
+        md_filename = f"{safe_name}_{asset_id}.md"
+        md_path = os.path.join(self.md_dir, md_filename)
+        initial_tags = ["live"] # Default tag for recordings
+
+        with open(md_path, 'w') as f:
+            f.write(f"---\nid: {asset_id}\ntype: Recording\ntags: {', '.join(initial_tags)}\ncreated: {datetime.now().isoformat()}\n---\n\n")
+            f.write(f"# {name}\n\n")
+            f.write("## Files\n")
+            f.write(f"- Audio: [[{audio_filename}]]\n")
+            
+            if notes_content:
+                f.write(f"\n## Notes\n{notes_content}\n")
+
+        rec = RecordingAsset(
+            id=asset_id,
+            name=name,
+            path=md_path,
+            versions={"main": audio_filename},
+            duration=audio_doc.get('duration'),
+            metadata=audio_doc.get('metadata', {}),
+            tags=initial_tags
+        )
+
+        self.assets_table.remove(Query().id == audio_doc['id'])
+        self.assets_table.insert(rec.dict())
+        return rec
+
     def create_stems_asset(self, parent_asset_id: str, stems_folder: str) -> str:
-        """Create a new SONG_STEMS asset and link it to the parent."""
+        """Links newly separated stems to the parent asset's markdown file."""
         parent = self.get_asset(parent_asset_id)
         if not parent: return None
         
         # Consistent ID for stems: ST + parent_id
         stems_id = f"ST{parent_asset_id}"
-        stems_name = f"{parent['name']} [STEMS]"
-        
-        # Create MD file for stems
-        md_filename = f"{self._sanitize_filename(stems_name)}_{stems_id}.md"
-        md_path = os.path.join(self.md_dir, md_filename)
         
         stem_files = [f for f in os.listdir(stems_folder) if f.endswith(('.wav', '.mp3'))]
-        
-        with open(md_path, 'w') as f:
-            f.write(f"---\nid: {stems_id}\ntype: SongStems\nparent_id: {parent_asset_id}\ncreated: {datetime.now().isoformat()}\n---\n\n")
-            f.write(f"# {stems_name}\n\n")
-            f.write("## Stems\n")
-            for sf in stem_files:
-                f.write(f"- {sf.capitalize().replace('.wav', '')}: [[{sf}]]\n")
-
-        stems_asset = {
-            "id": stems_id,
-            "name": stems_name,
-            "path": md_path,
-            "data_type": AssetDataType.AUDIO,
-            "asset_type": AssetType.SONG_STEMS,
-            "created_at": datetime.now().isoformat(),
-            "versions": {os.path.splitext(sf)[0]: sf for sf in stem_files},
-            "metadata": {"parent_id": parent_asset_id},
-            "tags": parent.get('tags', [])
-        }
-        
-        self.assets_table.insert(stems_asset)
         
         # Link to parent
         self.update_asset(parent_asset_id, {"stems_id": stems_id})
@@ -621,9 +668,18 @@ class LibraryManagerEngine:
             with open(parent_path, 'r') as f:
                 content = f.read()
             
-            if "## Stems" not in content:
+            # Re-write stems section if it exists, or append
+            if "## Stems" in content:
+                # Naive replace, better to just append new stems if not listed
+                for sf in stem_files:
+                    if sf not in content:
+                        with open(parent_path, 'a') as f:
+                            f.write(f"- {sf.capitalize().replace('.wav', '')}: [[{sf}]]\n")
+            else:
                 with open(parent_path, 'a') as f:
-                    f.write(f"\n## Stems\n- Stems: [[{os.path.basename(md_path)}]]\n")
+                    f.write(f"\n## Stems\n")
+                    for sf in stem_files:
+                        f.write(f"- {sf.capitalize().replace('.wav', '')}: [[{sf}]]\n")
         
         return stems_id
 
@@ -687,6 +743,7 @@ class LibraryManagerEngine:
             asset_type = AssetType.RAW
             if asset_type_str == "beat": asset_type = AssetType.BEAT
             elif asset_type_str == "song": asset_type = AssetType.SONG
+            elif asset_type_str == "recording": asset_type = AssetType.RECORDING
             elif asset_type_str == "sample": asset_type = AssetType.SAMPLE
             elif asset_type_str == "songstems": asset_type = AssetType.SONG_STEMS
 
@@ -716,20 +773,27 @@ class LibraryManagerEngine:
 
             if audio_file:
                 audio_to_md_map[audio_file] = md_path
+            
+            # Extract duration if audio exists
+            duration = 0
+            if audio_file:
+                full_audio_path = os.path.join(self.audio_dir, audio_file)
+                duration = self._get_audio_duration(full_audio_path)
 
             # Add to DB
             new_asset = {
                 "id": asset_id,
                 "name": name,
                 "path": md_path, # ALWAYS point to MD for consistency
-                "data_type": AssetDataType.AUDIO,
-                "asset_type": asset_type,
+                "data_type": AssetDataType.AUDIO.value,
+                "asset_type": asset_type.value,
                 "created_at": meta.get("created", datetime.now().isoformat()),
                 "versions": {"main": audio_file} if audio_file else {},
+                "duration": duration,
                 "metadata": meta,
                 "tags": meta.get("tags", []),
-                "notes_file": notes_file,
-                "stems_id": meta.get("stems_id")
+                "stems_id": meta.get("stems_id"),
+                "notes_file": notes_file
             }
             self.assets_table.insert(new_asset)
             count += 1
@@ -748,19 +812,26 @@ class LibraryManagerEngine:
                     
                     clean_af_name = base_af.split("_" + asset_id)[0] if asset_id in base_af else base_af
                     
+                    full_audio_path = os.path.join(self.audio_dir, af)
+                    duration = self._get_audio_duration(full_audio_path)
+
                     # Add to DB directly pointing to audio file
                     new_asset = {
                         "id": asset_id,
                         "name": clean_af_name,
-                        "path": os.path.join(self.audio_dir, af),
-                        "data_type": AssetDataType.AUDIO,
-                        "asset_type": AssetType.RAW,
+                        "path": full_audio_path,
+                        "data_type": AssetDataType.AUDIO.value,
+                        "asset_type": AssetType.RAW.value,
                         "created_at": datetime.now().isoformat(),
                         "versions": {"main": af},
+                        "duration": duration,
                         "metadata": {"type": "Raw", "id": asset_id},
                         "tags": [],
                         "notes_file": None
                     }
+                    if count < 5:
+                        print(f"DEBUG SYNC {count}: {name} - audio={audio_file if 'audio_file' in locals() else 'N/A'} - dur={duration}")
+
                     self.assets_table.insert(new_asset)
                     count += 1
                     
@@ -774,3 +845,99 @@ class LibraryManagerEngine:
                 if f.lower().endswith(audio_exts):
                     potential.append({"name": os.path.splitext(f)[0], "type": "audio", "path": os.path.join(root, f)})
         return potential
+
+    def export_beat(self, asset_id: str, target_dir: str) -> bool:
+        """Export the primary audio file of an asset to the target directory."""
+        audio_path = self.get_audio_path(asset_id)
+        if not audio_path or not os.path.exists(audio_path):
+            logger.error(f"Could not find audio for asset {asset_id}")
+            return False
+        
+        asset = self.get_asset(asset_id)
+        if not asset: return False
+        
+        safe_name = self._sanitize_filename(asset['name'])
+        ext = os.path.splitext(audio_path)[1]
+        dest_path = os.path.join(target_dir, f"{safe_name}{ext}")
+        
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            shutil.copy2(audio_path, dest_path)
+            return True
+        except Exception as e:
+            logger.error(f"Export failed for {asset_id}: {e}")
+            return False
+
+    def add_master_version(self, asset_id: str, source_path: str) -> bool:
+        """Add a new 'master' version to an asset."""
+        asset = self.get_asset(asset_id)
+        if not asset: return False
+        
+        ext = os.path.splitext(source_path)[1]
+        safe_name = self._sanitize_filename(asset['name'])
+        dest_filename = f"{safe_name}_{asset_id}_master{ext}"
+        dest_path = os.path.join(self.audio_dir, dest_filename)
+        
+        try:
+            shutil.copy2(source_path, dest_path)
+            versions = asset.get('versions', {})
+            versions['master'] = dest_filename
+            
+            # Update MD file if it exists
+            md_path = asset.get('path')
+            if md_path and os.path.exists(md_path) and md_path.endswith('.md'):
+                with open(md_path, 'a') as f:
+                    f.write(f"- Master: [[{dest_filename}]]\n")
+            
+            return self.update_asset(asset_id, {'versions': versions})
+        except Exception as e:
+            logger.error(f"Failed to add master version: {e}")
+            return False
+
+    def generate_mp3_for_beat(self, asset_id: str) -> bool:
+        """Converts the primary audio of an asset to MP3 if it's not already."""
+        audio_path = self.get_audio_path(asset_id)
+        if not audio_path or not os.path.exists(audio_path): return False
+        
+        if audio_path.lower().endswith(".mp3"): return True
+        
+        dest_filename = os.path.splitext(os.path.basename(audio_path))[0] + ".mp3"
+        dest_path = os.path.join(self.audio_dir, dest_filename)
+        
+        try:
+            subprocess.run(["ffmpeg", "-i", audio_path, "-codec:a", "libmp3lame", "-qscale:a", "2", dest_path], 
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            asset = self.get_asset(asset_id)
+            if asset:
+                versions = asset.get('versions', {})
+                versions['mp3'] = dest_filename
+                
+                # Update MD file
+                md_path = asset.get('path')
+                if md_path and os.path.exists(md_path) and md_path.endswith('.md'):
+                    with open(md_path, 'a') as f:
+                        f.write(f"- MP3: [[{dest_filename}]]\n")
+                
+                self.update_asset(asset_id, {'versions': versions})
+            return True
+        except Exception as e:
+            logger.error(f"MP3 generation failed: {e}")
+            return False
+
+    def move_beat(self, asset_id: str, target_dir: str) -> bool:
+        """Move the primary file of an asset to a new directory."""
+        asset = self.get_asset(asset_id)
+        if not asset: return False
+        
+        old_path = asset.get('path')
+        if not old_path or not os.path.exists(old_path): return False
+        
+        new_path = os.path.join(target_dir, os.path.basename(old_path))
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            shutil.move(old_path, new_path)
+            return self.update_asset(asset_id, {'path': new_path})
+        except Exception as e:
+            logger.error(f"Move failed for {asset_id}: {e}")
+            return False

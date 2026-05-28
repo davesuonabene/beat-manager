@@ -58,6 +58,7 @@ The CLI is the automation engine. It includes diagnostic tools to ensure the com
 -   **Python 3.10+**
 -   **Torch & Torchcodec**: For AI-powered stems separation.
 -   **HTDemucs**: Installed within the local virtual environment.
+-   **tmux**: Required for the `beatmgr` management script.
 
 ### Installation
 ```bash
@@ -67,6 +68,26 @@ pip install -r requirements.txt
 # Check your environment
 python3 cli.py doctor
 ```
+
+---
+
+## 🕹️ Management & Remote Export
+
+### The `mmpy` Command
+The project includes a "plug-and-play" management script linked to `mmpy`.
+- **`mmpy`**: (or `mmpy attach`) Automatically starts the app in a tmux session if not running and attaches to it.
+- **`mmpy stop`**: Safely kills the tmux session.
+- **`mmpy status`**: Checks if the manager is running.
+- **`mmpy restart`**: Performs a clean restart.
+
+This script ensures the TUI remains running even if your SSH connection drops.
+
+### "Send to Remote" (SCP)
+When connected via SSH, the **Export Modal** (triggered with `E` in the TUI) features a **"SEND TO REMOTE"** button.
+- **Automatic Detection**: It detects your client machine's IP address.
+- **One-Click Transfer**: Exports the assets to a temp folder and pushes them via `scp` to your local `~/Downloads` folder.
+- **Reactive UI**: The button is greyed out if no connection is detected and enables itself automatically once you connect.
+- **Multi-session support**: The `mmpy` command synchronizes your latest SSH environment with the running TUI every time you attach.
 
 ---
 
@@ -94,6 +115,7 @@ Processes heavy tasks like `RENDER` and `STEMS` without blocking the UI.
 -   **SONG Asset Type**: Dedicated workflow for full track management.
 -   **Tag-based Organization**: Full replacement of the legacy "Collection" system with high-speed tagging.
 -   **SQLite Concurrency**: Multi-threaded database access for simultaneous UI and processing.
+-   **RECORDING Asset Type**: Dedicated workflow for live recorded audio tracks.
 -   **Deep Library Sync**: Automatic 1:1 mapping of 2,400+ physical assets to Markdown files.
 
 ---
