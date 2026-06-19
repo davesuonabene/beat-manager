@@ -154,6 +154,20 @@ class ImportOverlay(Vertical):
                 with Horizontal(id="import-opts-row"):
                     yield Checkbox("MOVE SOURCE", id="import-delete-source", value=False)
                     yield Checkbox("SKIP DUPES", id="import-skip-dupes", value=True)
+                
+                yield Label("Type", classes="menu-label")
+                yield Select(
+                    [
+                        ("Raw Audio", "raw"),
+                        ("Beat", "beat"),
+                        ("Sample", "sample"),
+                        ("Song", "song"),
+                        ("Recording", "recording")
+                    ],
+                    id="import-type-select",
+                    value="raw",
+                    allow_blank=False
+                )
             
             yield Button("SCAN DIRECTORY", id="btn-import-scan", variant="primary")
 
@@ -295,32 +309,22 @@ class ImportOverlay(Vertical):
 
             delete_after = self.query_one("#import-delete-source", Checkbox).value
             skip_dupes = self.query_one("#import-skip-dupes", Checkbox).value
+            import_type_str = self.query_one("#import-type-select", Select).value
+            from app.models.schemas import AssetType
+            try:
+                asset_type = AssetType(import_type_str)
+            except ValueError:
+                asset_type = AssetType.RAW
             
-            count = 0
+            assets_to_import = []
             for idx in selected_indices:
                 if 0 <= idx < len(self.found_assets):
-                    asset_data = self.found_assets[idx]
-                    if skip_dupes and asset_data.get('status') == 'Exists': continue
-                    if asset_data['type'] == 'audio':
-                        self.app.library_engine.import_raw_audio(
-                            name=asset_data['name'],
-                            audio_source=asset_data['path'],
-                            notes_source=asset_data['notes_path'],
-                            delete_source=delete_after
-                        )
-                    else: 
-                        self.app.library_engine.import_image(
-                            name=asset_data['name'],
-                            source_path=asset_data['path'],
-                            delete_source=delete_after
-                        )
-                    count += 1
-            
-            self.app.update_activity(f"IMPORTED {count} ASSETS")
-            self.handle_scan() 
+                    assets_to_import.append(self.found_assets[idx])
+
+            self.run_import_worker(assets_to_import, delete_after, skip_dupes, asset_type)
         except Exception as e:
             self.app.notify(f"Import failed: {str(e)}", severity="error")
-
+ 
     @on(Button.Pressed, "#btn-import-all")
     def handle_import_all(self) -> None:
         if not self.found_assets:
@@ -329,15 +333,32 @@ class ImportOverlay(Vertical):
         try:
             delete_after = self.query_one("#import-delete-source", Checkbox).value
             skip_dupes = self.query_one("#import-skip-dupes", Checkbox).value
-            count = 0
-            for asset_data in self.found_assets:
+            import_type_str = self.query_one("#import-type-select", Select).value
+            from app.models.schemas import AssetType
+            try:
+                asset_type = AssetType(import_type_str)
+            except ValueError:
+                asset_type = AssetType.RAW
+
+            self.run_import_worker(list(self.found_assets), delete_after, skip_dupes, asset_type)
+        except Exception as e:
+            self.app.notify(f"Bulk import failed: {str(e)}", severity="error")
+
+    @work(exclusive=True, thread=True)
+    def run_import_worker(self, assets: list, delete_after: bool, skip_dupes: bool, asset_type: Any) -> None:
+        count = 0
+        total = len(assets)
+        self.app.update_activity("IMPORTING ASSETS...", 0)
+        for i, asset_data in enumerate(assets):
+            try:
                 if skip_dupes and asset_data.get('status') == 'Exists': continue
                 if asset_data['type'] == 'audio':
                     self.app.library_engine.import_raw_audio(
                         name=asset_data['name'],
                         audio_source=asset_data['path'],
-                        notes_source=asset_data['notes_path'],
-                        delete_source=delete_after
+                        notes_source=asset_data.get('notes_path'),
+                        delete_source=delete_after,
+                        asset_type=asset_type
                     )
                 else: 
                     self.app.library_engine.import_image(
@@ -346,10 +367,13 @@ class ImportOverlay(Vertical):
                         delete_source=delete_after
                     )
                 count += 1
-            self.app.update_activity(f"BULK IMPORT FINISHED: {count} ASSETS")
-            self.handle_scan() 
-        except Exception as e:
-            self.app.notify(f"Bulk import failed: {str(e)}", severity="error")
+                progress = ((i + 1) / total) * 100
+                self.app.update_activity(f"IMPORTING: {count}/{total}", progress)
+            except Exception as e:
+                self.app.notify(f"Import failed for {asset_data['name']}: {str(e)}", severity="error")
+        
+        self.app.update_activity(f"IMPORTED {count} ASSETS")
+        self.app.call_from_thread(self.handle_scan)
 
 class PathPicker(ModalScreen):
     """A professional modal for file system navigation."""
@@ -385,23 +409,38 @@ class PathPicker(ModalScreen):
         else:
             self.dismiss(str(tree.path))
 
-class ExportScreen(ModalScreen):
-    """Modal for exporting assets with optional parent folder."""
+class FocusInput(Input):
+    class Focused(Message):
+        def __init__(self, control: Input) -> None:
+            self.control = control
+            super().__init__()
+
+    def on_focus(self) -> None:
+        self.post_message(self.Focused(self))
+
+class ExportOverlay(Vertical):
+    """An embedded overlay for exporting assets with optional parent folder."""
     def __init__(self, initial_path: str = os.path.expanduser("~"), **kwargs):
         super().__init__(**kwargs)
         self.initial_path = initial_path
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="export-container"):
-            yield Label("EXPORT ASSETS", classes="panel_title")
-            yield DirectoryTree(self.initial_path, id="export-path-tree")
-            with Horizontal(id="export-folder-name-container"):
-                yield Label("Parent Folder: ")
-                yield Input(placeholder="(Optional) folder name", id="export-parent-name")
-            with Horizontal(id="export-buttons"):
-                yield Button("CANCEL", id="btn-export-cancel", variant="error")
-                yield Button("SEND TO REMOTE", id="btn-export-remote", variant="primary", disabled=not self.app.remote_available)
-                yield Button("EXPORT", id="btn-export-confirm", variant="success")
+        yield Label("EXPORT ASSETS", classes="panel_title")
+        
+        yield Label("Export Path", classes="menu-label")
+        with Horizontal(id="export-path-row"):
+            yield FocusInput(placeholder="Select path...", id="export-path-input")
+            yield Button("📂", id="btn-export-browse", tooltip="Browse Folders")
+            
+        yield DirectoryTree(self.initial_path, id="export-path-tree", classes="hidden")
+        
+        with Horizontal(id="export-folder-name-container"):
+            yield Label("Parent Folder: ", classes="menu-label")
+            yield Input(placeholder="(Optional) folder name", id="export-parent-name")
+        with Horizontal(id="export-buttons"):
+            yield Button("CANCEL", id="btn-export-cancel", variant="error")
+            yield Button("SEND TO REMOTE", id="btn-export-remote", variant="primary", disabled=not self.app.remote_available)
+            yield Button("EXPORT", id="btn-export-confirm", variant="success")
 
     def on_mount(self) -> None:
         self.watch(self.app, "remote_available", self.update_remote_button)
@@ -412,9 +451,33 @@ class ExportScreen(ModalScreen):
             btn.disabled = not available
         except: pass
 
+    @on(Button.Pressed, "#btn-export-browse")
+    def toggle_path_tree(self) -> None:
+        tree = self.query_one("#export-path-tree", DirectoryTree)
+        tree.toggle_class("hidden")
+
+    def on_focus_input_focused(self, message: FocusInput.Focused) -> None:
+        if message.control.id == "export-path-input":
+            tree = self.query_one("#export-path-tree", DirectoryTree)
+            tree.remove_class("hidden")
+
+    @on(DirectoryTree.NodeSelected)
+    def on_node_selected(self, event: DirectoryTree.NodeSelected) -> None:
+        if event.node.data:
+            try:
+                path = str(event.node.data.path)
+            except AttributeError:
+                path = str(event.node.data)
+            self.query_one("#export-path-input", Input).value = path
+
+    @on(DirectoryTree.FileSelected)
+    def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        self.query_one("#export-path-input", Input).value = str(event.path)
+        self.query_one("#export-path-tree", DirectoryTree).add_class("hidden")
+
     @on(Button.Pressed, "#btn-export-cancel")
     def cancel(self) -> None:
-        self.dismiss(None)
+        self.app.query_one(LibraryTab).show_inspector_tab("info")
 
     @on(Button.Pressed, "#btn-export-confirm")
     def confirm(self) -> None:
@@ -425,20 +488,21 @@ class ExportScreen(ModalScreen):
         self._handle_export(remote=True)
 
     def _handle_export(self, remote: bool = False) -> None:
-        tree = self.query_one("#export-path-tree", DirectoryTree)
+        lib_tab = self.app.query_one(LibraryTab)
+        ids = lib_tab._get_selected_ids()
+        if not ids:
+            self.app.notify("No assets selected for export", severity="warning")
+            return
+
+        path = self.query_one("#export-path-input", Input).value.strip()
         parent_name = self.query_one("#export-parent-name", Input).value.strip()
         
-        path = None
-        if tree.cursor_node and tree.cursor_node.data:
-            try:
-                path = str(tree.cursor_node.data.path)
-            except AttributeError:
-                path = str(tree.cursor_node.data)
-        else:
-            path = str(tree.path)
+        if not path and not remote:
+            self.app.notify("Please select or enter an export path", severity="warning")
+            return
             
-        if path or remote: # If remote, path might not matter as much if we use a temp dir, but let's keep it consistent
-            self.dismiss({"path": path, "parent_name": parent_name, "remote": remote})
+        lib_tab.perform_export(ids, {"path": path, "parent_name": parent_name, "remote": remote})
+        lib_tab.show_inspector_tab("info")
 
 class WaveformDisplay(Static):
     """A responsive waveform display showing progress."""
@@ -567,7 +631,18 @@ class LibraryTab(Vertical):
         Binding("escape", "clear_selection", "Clear Selection"),
         Binding("slash", "focus_search", "Search"),
         Binding("i", "invert_selection", "Invert Selection"),
+        Binding("s", "toggle_selection_force", "Select Item"),
     ]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.expanded_assets = set()
+        self.expanded_stems = set()
+        self.selected_versions = {}
+        self.editing_coordinate = None
+        self.editing_field = None
+        self.editing_asset_id = None
+        self.assets = []
 
     def on_key(self, event: events.Key) -> None:
         """Handle special keys to prevent default behavior or trigger actions."""
@@ -581,13 +656,6 @@ class LibraryTab(Vertical):
             self.action_toggle_playback()
             event.stop()
             event.prevent_default()
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.editing_coordinate = None
-        self.editing_field = None
-        self.editing_asset_id = None
-        self.assets = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="library-header"):
@@ -641,26 +709,30 @@ class LibraryTab(Vertical):
                                     yield Input(id="meta-bpm")
                                     yield Label("Tags")
                                     yield Input(placeholder="tag1, tag2...", id="meta-tags")
-                        with TabPane("VERSIONS", id="tab-versions"):
-                            yield ListView(id="inspector-versions-list")
+                        # Tab-versions nested in tree itself
+                        pass
 
                 yield ImportOverlay(id="inspector-import-view", classes="hidden")
+                yield ExportOverlay(id="inspector-export-view", classes="hidden")
                 yield ActionMenuOverlay(id="inspector-action-view", classes="hidden")
 
     def show_inspector_tab(self, view: str) -> None:
         self.current_inspector_tab = view
         info_view = self.query_one("#inspector-info-view")
         import_view = self.query_one("#inspector-import-view")
+        export_view = self.query_one("#inspector-export-view")
         action_view = self.query_one("#inspector-action-view")
         
         # Hide all first
-        for v in [info_view, import_view, action_view]:
+        for v in [info_view, import_view, export_view, action_view]:
             v.add_class("hidden")
             
         if view == "info":
             info_view.remove_class("hidden")
         elif view == "import":
             import_view.remove_class("hidden")
+        elif view == "export":
+            export_view.remove_class("hidden")
         elif view == "action":
             action_view.remove_class("hidden")
 
@@ -789,7 +861,10 @@ class LibraryTab(Vertical):
                 self.query_one("#lib-count-status", Label).update(count_text)
             except: pass
             
-            # Save cursor state
+            # Save cursor state by key to prevent shifting on expansion
+            old_cursor_key = None
+            if table.cursor_row is not None and table.cursor_row < len(table.rows):
+                old_cursor_key = list(table.rows.keys())[table.cursor_row]
             old_cursor_row = table.cursor_row
             
             table.clear(columns=False)
@@ -801,19 +876,33 @@ class LibraryTab(Vertical):
                     continue
                 seen_ids.add(asset_id)
                 
-                marker = "[*]" if asset_id in selected_ids else "[ ]"
+                # Fetch resolved paths for versions and stems
+                resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+                versions = [v for v in resolved.get("versions", []) if v["type"] == "version"]
+                stems = [v for v in resolved.get("versions", []) if v["type"] == "stem"]
+                
+                has_multiple_versions = len(versions) > 1
+                has_stems = len(stems) > 0
+                is_expanded = asset_id in self.expanded_assets
+                
                 raw_name = a.get('name', 'Unknown')
+                if has_multiple_versions or has_stems:
+                    arrow = "▼ " if is_expanded else "▶ "
+                    display_id = f"{arrow}{asset_id}"
+                else:
+                    display_id = asset_id
+                    
                 display_name = f"[bold green]▶ {raw_name}[/bold green]" if asset_id == self.currently_playing_id else raw_name
                 
+                marker = "[*]" if asset_id in selected_ids else "[ ]"
                 tags_list = a.get('tags', [])
                 tags_display = ", ".join([f"#{t}" if not t.startswith("#") else t for t in tags_list])
 
                 try:
-                    # Use a prefixed key to avoid collisions with any internal Textual keys
                     row_key = f"row_{asset_id}"
                     table.add_row(
                         marker,
-                        asset_id,
+                        display_id,
                         display_name,
                         tags_display,
                         a.get('asset_type', 'N/A').upper(),
@@ -826,15 +915,94 @@ class LibraryTab(Vertical):
                 except Exception as e:
                     continue
                 
+                # Render versions and stems if expanded
+                if (has_multiple_versions or has_stems) and is_expanded:
+                    if has_multiple_versions:
+                        db_selected = a.get("selected_version")
+                        for v_idx, v in enumerate(versions):
+                            is_active = False
+                            if db_selected:
+                                is_active = (v["path"] == db_selected)
+                            else:
+                                is_active = (v_idx == 0)
+                                
+                            version_marker = "[x]" if is_active else "[ ]"
+                            branch = "├─" if (v_idx < len(versions) - 1 or has_stems) else "└─"
+                            v_display_name = f"  {branch} {version_marker} {v['name']}"
+                            if is_active:
+                                v_display_name = f"[bold yellow]{v_display_name} (active)[/bold yellow]"
+                                
+                            try:
+                                v_key = f"version_{asset_id}_{v_idx}"
+                                table.add_row(
+                                    "",
+                                    "",
+                                    v_display_name,
+                                    "",
+                                    "VERSION",
+                                    "",
+                                    "",
+                                    "",
+                                    self._format_time(a.get('duration', 0) or 0),
+                                    key=v_key
+                                )
+                            except: pass
+                            
+                    if has_stems:
+                        stems_expanded = asset_id in self.expanded_stems
+                        stems_arrow = "▼" if stems_expanded else "▶"
+                        stems_display_name = f"  └─ Stems {stems_arrow}"
+                        
+                        try:
+                            stems_menu_key = f"stems_menu_{asset_id}"
+                            table.add_row(
+                                "",
+                                "",
+                                stems_display_name,
+                                "",
+                                "STEMS",
+                                "",
+                                "",
+                                "",
+                                "",
+                                key=stems_menu_key
+                            )
+                        except: pass
+                        
+                        if stems_expanded:
+                            for s_idx, s in enumerate(stems):
+                                stem_branch = "  ├─" if (s_idx < len(stems) - 1) else "  └─"
+                                s_display_name = f"    {stem_branch} {s['name']}"
+                                
+                                try:
+                                    s_key = f"stem_{asset_id}_{s_idx}"
+                                    table.add_row(
+                                        "",
+                                        "",
+                                        s_display_name,
+                                        "",
+                                        "STEM",
+                                        "",
+                                        "",
+                                        "",
+                                        "",
+                                        key=s_key
+                                    )
+                                except: pass
+                
             # Restore cursor state
-            if old_cursor_row is not None and len(self.assets) > 0:
+            if old_cursor_key is not None and old_cursor_key in table.rows:
                 try:
-                    table.cursor_coordinate = Coordinate(min(old_cursor_row, len(self.assets) - 1), 0)
+                    table.cursor_coordinate = Coordinate(list(table.rows.keys()).index(old_cursor_key), 0)
+                except: pass
+            elif old_cursor_row is not None and len(table.rows) > 0:
+                try:
+                    table.cursor_coordinate = Coordinate(min(old_cursor_row, len(table.rows) - 1), 0)
                 except: pass
             
             # Restore selection state
             if selected_ids:
-                table.selected_rows = set(selected_ids) # Restore as a SET
+                table.selected_rows = set(selected_ids)
                 for row_key in table.rows.keys():
                     asset_id = str(row_key.value).replace("row_", "")
                     if asset_id in table.selected_rows:
@@ -1001,17 +1169,7 @@ class LibraryTab(Vertical):
             self.query_one("#meta-key", Input).value = key
             self.query_one("#meta-bpm", Input).value = bpm
             self.query_one("#meta-tags", Input).value = tags
-            
-            # Populate versions list
-            versions_list = self.query_one("#inspector-versions-list", ListView)
-            versions_list.clear()
             versions = resolved.get("versions", [])
-            for i, v in enumerate(versions):
-                item = ListItem(Label(v["name"]))
-                item.audio_path = v["path"]
-                versions_list.append(item)
-            
-            # Keep a reference to versions for fallback playback
             inspector.asset_versions = versions
 
             inspector.asset_id = asset_id
@@ -1024,7 +1182,7 @@ class LibraryTab(Vertical):
             }
         finally:
             self._populating_inspector = False
-
+ 
     def populate_inspector_bulk(self, asset_ids: List[str]) -> None:
         """Populate inspector with multiple assets for bulk editing."""
         self._populating_inspector = True
@@ -1034,9 +1192,6 @@ class LibraryTab(Vertical):
                 
             inspector = self.query_one("#inspector-info-view")
             notes_area = self.query_one("#inspector-notes", TextArea)
-            
-            # Clear versions list in bulk mode
-            self.query_one("#inspector-versions-list", ListView).clear()
             
             assets = []
             for aid in asset_ids:
@@ -1093,13 +1248,7 @@ class LibraryTab(Vertical):
         finally:
             self._populating_inspector = False
 
-    @on(ListView.Selected, "#inspector-versions-list")
-    def handle_version_selected(self, event: ListView.Selected) -> None:
-        if not getattr(self, "_populating_inspector", False):
-            # Highlight to indicate selection
-            # The item itself is already highlighted by ListView
-            if self.currently_playing_id:
-                self.action_preview()
+    # Version selection handled inline inside DataTable tree
 
     def handle_inspector_save(self, is_auto: bool = False) -> None:
         inspector = self.query_one("#inspector-info-view")
@@ -1242,28 +1391,107 @@ class LibraryTab(Vertical):
             row_keys = list(table.rows.keys())
             if table.cursor_row >= len(row_keys): return
             row_key = row_keys[table.cursor_row]
-            asset_id = str(row_key.value).replace("row_", "")
+            row_key_str = str(row_key.value)
             
-            if not hasattr(table, "selected_rows"): table.selected_rows = set()
+            if row_key_str.startswith("row_"):
+                asset_id = row_key_str.replace("row_", "")
+                
+                # Check if it has multiple versions or stems
+                resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+                versions = [v for v in resolved.get("versions", []) if v["type"] == "version"]
+                stems = [v for v in resolved.get("versions", []) if v["type"] == "stem"]
+                
+                if len(versions) > 1 or len(stems) > 0:
+                    # Toggle expansion state
+                    if asset_id in self.expanded_assets:
+                        self.expanded_assets.remove(asset_id)
+                    else:
+                        self.expanded_assets.add(asset_id)
+                    self.refresh_library(force=True)
+                else:
+                    # Toggle checkbox selection
+                    if not hasattr(table, "selected_rows"): table.selected_rows = set()
+                    if asset_id in table.selected_rows:
+                        table.selected_rows.remove(asset_id)
+                        table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
+                    else:
+                        table.selected_rows.add(asset_id)
+                        table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
+                    
+                    self._update_inspector_selection(table, asset_id)
+                    
+            elif row_key_str.startswith("version_"):
+                # Select this version as active
+                parts = row_key_str.split("_")
+                asset_id = parts[1]
+                v_idx = int(parts[2])
+                
+                resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+                if resolved:
+                    versions = [v for v in resolved.get("versions", []) if v["type"] == "version"]
+                    if 0 <= v_idx < len(versions):
+                        v_path = versions[v_idx]["path"]
+                        self.app.library_engine.update_asset(asset_id, {"selected_version": v_path})
+                        self.app.notify(f"Active version set: {versions[v_idx]['name']}")
+                        self.refresh_library(force=True)
+                        self.action_preview()
+                        
+            elif row_key_str.startswith("stems_menu_"):
+                # Toggle stems expansion state
+                parts = row_key_str.split("_")
+                asset_id = parts[2]
+                
+                if asset_id in self.expanded_stems:
+                    self.expanded_stems.remove(asset_id)
+                else:
+                    self.expanded_stems.add(asset_id)
+                self.refresh_library(force=True)
+                
+            elif row_key_str.startswith("stem_"):
+                # Preview this stem
+                self.action_preview()
 
-            if asset_id in table.selected_rows:
-                table.selected_rows.remove(asset_id)
-                table.update_cell(row_key, list(table.columns.keys())[0], "[ ]")
-            else:
-                table.selected_rows.add(asset_id)
-                table.update_cell(row_key, list(table.columns.keys())[0], "[*]")
+    def action_toggle_selection_force(self) -> None:
+        table = self.query_one("#library-table", DataTable)
+        if table.cursor_row is not None:
+            row_keys = list(table.rows.keys())
+            if table.cursor_row >= len(row_keys): return
+            row_key = row_keys[table.cursor_row]
+            row_key_str = str(row_key.value)
             
-            # Update inspector and refresh library (to update header duration)
-            selected_ids = list(table.selected_rows)
-            if len(selected_ids) > 1:
-                self.populate_inspector_bulk(selected_ids)
-            elif len(selected_ids) == 1:
-                self.populate_inspector(selected_ids[0])
-            else:
-                self.populate_inspector(asset_id)
-            
-            # Silent refresh to update the total length/count in header
-            self.refresh_library()
+            asset_id = None
+            if row_key_str.startswith("row_"):
+                asset_id = row_key_str.replace("row_", "")
+            elif row_key_str.startswith("version_") or row_key_str.startswith("stems_menu_") or row_key_str.startswith("stem_"):
+                parts = row_key_str.split("_")
+                asset_id = parts[1] if row_key_str.startswith("version_") or row_key_str.startswith("stem_") else parts[2]
+                
+            if asset_id:
+                main_row_key = f"row_{asset_id}"
+                if not hasattr(table, "selected_rows"): table.selected_rows = set()
+                
+                if asset_id in table.selected_rows:
+                    table.selected_rows.remove(asset_id)
+                    try:
+                        table.update_cell(main_row_key, list(table.columns.keys())[0], "[ ]")
+                    except: pass
+                else:
+                    table.selected_rows.add(asset_id)
+                    try:
+                        table.update_cell(main_row_key, list(table.columns.keys())[0], "[*]")
+                    except: pass
+                
+                self._update_inspector_selection(table, asset_id)
+
+    def _update_inspector_selection(self, table: DataTable, asset_id: str) -> None:
+        selected_ids = list(getattr(table, "selected_rows", set()))
+        if len(selected_ids) > 1:
+            self.populate_inspector_bulk(selected_ids)
+        elif len(selected_ids) == 1:
+            self.populate_inspector(selected_ids[0])
+        else:
+            self.populate_inspector(asset_id)
+        self.refresh_library()
 
     def _get_selected_ids(self) -> List[str]:
         try:
@@ -1320,14 +1548,10 @@ class LibraryTab(Vertical):
             self.app.update_activity("ERROR: NO ASSETS SELECTED")
             return
         
-        def on_export_info(info: dict | None) -> None:
-            if info:
-                self.perform_export(ids, info)
-        
-        self.app.push_screen(ExportScreen(), on_export_info)
+        self.show_inspector_tab("export")
 
-    @work(exclusive=True)
-    async def perform_export(self, ids: List[str], info: dict) -> None:
+    @work(exclusive=True, thread=True)
+    def perform_export(self, ids: List[str], info: dict) -> None:
         path = info.get("path")
         parent_name = info.get("parent_name")
         remote = info.get("remote", False)
@@ -1411,38 +1635,84 @@ class LibraryTab(Vertical):
             self.app.update_activity("ERROR: SELECT AN ASSET")
             return
         
-        asset_id = ids[0]
-        resolved = self.app.library_engine.resolve_asset_paths(asset_id)
-        
-        if not resolved:
-            self.app.notify(f"Asset {asset_id} not found", severity="error")
+        table = self.query_one("#library-table", DataTable)
+        if table.cursor_row is None:
+            self.app.update_activity("ERROR: SELECT AN ASSET")
             return
-
-        # Get audio path from selector
-        versions_list = self.query_one("#inspector-versions-list", ListView)
-        audio_path = None
+            
+        row_keys = list(table.rows.keys())
+        if table.cursor_row >= len(row_keys):
+            self.app.update_activity("ERROR: SELECT AN ASSET")
+            return
+            
+        row_key_str = str(row_keys[table.cursor_row].value)
         
-        if versions_list.index is not None and versions_list.index >= 0:
-            selected_item = versions_list.children[versions_list.index]
-            audio_path = getattr(selected_item, "audio_path", None)
+        audio_path = None
+        asset_id = None
+        source_name = "Unknown"
 
-        if not audio_path:
-            # Fallback to the first version if nothing selected
+        if row_key_str.startswith("row_"):
+            asset_id = row_key_str.replace("row_", "")
+            resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+            if not resolved:
+                self.app.notify(f"Asset {asset_id} not found", severity="error")
+                return
+            
+            asset = self.app.library_engine.get_asset(asset_id)
+            selected_path = asset.get("selected_version") if asset else None
             versions = resolved.get("versions", [])
-            if versions: audio_path = versions[0]["path"]
+            
+            if selected_path:
+                for v in versions:
+                    if v["path"] == selected_path:
+                        audio_path = v["path"]
+                        source_name = v["name"].upper()
+                        break
+            
+            if not audio_path and versions:
+                for v in versions:
+                    if v["type"] == "version":
+                        audio_path = v["path"]
+                        source_name = v["name"].upper()
+                        break
+                if not audio_path:
+                    audio_path = versions[0]["path"]
+                    source_name = versions[0]["name"].upper()
+                    
+        elif row_key_str.startswith("version_"):
+            parts = row_key_str.split("_")
+            asset_id = parts[1]
+            v_idx = int(parts[2])
+            
+            resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+            if not resolved: return
+            
+            versions = [v for v in resolved.get("versions", []) if v["type"] == "version"]
+            if 0 <= v_idx < len(versions):
+                audio_path = versions[v_idx]["path"]
+                source_name = versions[v_idx]["name"].upper()
+                
+        elif row_key_str.startswith("stem_"):
+            parts = row_key_str.split("_")
+            asset_id = parts[1]
+            s_idx = int(parts[2])
+            
+            resolved = self.app.library_engine.resolve_asset_paths(asset_id)
+            if not resolved: return
+            
+            stems = [v for v in resolved.get("versions", []) if v["type"] == "stem"]
+            if 0 <= s_idx < len(stems):
+                audio_path = stems[s_idx]["path"]
+                source_name = stems[s_idx]["name"].upper()
+                
+        elif row_key_str.startswith("stems_menu_"):
+            return
 
         if audio_path and os.path.exists(audio_path):
             self.app.audio_engine.play_preview(audio_path)
-            self.currently_playing_id = asset_id
-            
-            # Find the display name for the activity log
-            source_name = "Unknown Version"
-            for v in resolved.get("versions", []):
-                if v["path"] == audio_path:
-                    source_name = v["name"].upper()
-                    break
-            
-            self.app.update_activity(f"PLAYING [{source_name}]: {resolved.get('name', 'Unknown')}")
+            if asset_id:
+                self.currently_playing_id = asset_id
+            self.app.update_activity(f"PLAYING [{source_name}]: {resolved.get('name', 'Unknown') if asset_id else 'Unknown'}")
         else:
             self.app.notify(f"Audio file not found: {audio_path or 'N/A'}", severity="warning")
 

@@ -16,8 +16,12 @@ class StateManager:
             self.db_path = os.path.join(project_root, "state.db")
             self.old_json_path = os.path.join(project_root, "state.json")
         else:
-            self.db_path = db_path
-            self.old_json_path = db_path.replace(".db", ".json")
+            if db_path.endswith(".json"):
+                self.db_path = db_path[:-5] + ".db"
+                self.old_json_path = db_path
+            else:
+                self.db_path = db_path
+                self.old_json_path = db_path.replace(".db", ".json")
 
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30.0)
         self.conn.row_factory = sqlite3.Row
@@ -97,7 +101,8 @@ class StateManager:
                 metadata TEXT,
                 tags TEXT,
                 stems_id TEXT,
-                duration REAL
+                duration REAL,
+                selected_version TEXT
             )
         """)
         
@@ -121,6 +126,13 @@ class StateManager:
         except sqlite3.OperationalError:
             logger.info("Adding stems_id column to library_assets table...")
             cursor.execute("ALTER TABLE library_assets ADD COLUMN stems_id TEXT")
+
+        # Migration: Add selected_version column if it doesn't exist
+        try:
+            cursor.execute("SELECT selected_version FROM library_assets LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Adding selected_version column to library_assets table...")
+            cursor.execute("ALTER TABLE library_assets ADD COLUMN selected_version TEXT")
 
         self.conn.commit()
 
@@ -220,9 +232,9 @@ class StateManager:
             def insert(self, data):
                 cursor = self.m.conn.cursor()
                 cursor.execute(
-                    "INSERT OR REPLACE INTO library_assets (id, name, path, data_type, asset_type, created_at, versions, metadata, tags, stems_id, duration) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO library_assets (id, name, path, data_type, asset_type, created_at, versions, metadata, tags, stems_id, duration, selected_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (data.get('id'), data.get('name'), data.get('path'), data.get('data_type'), data.get('asset_type'),
-                     data.get('created_at'), json.dumps(data.get('versions', {})), json.dumps(data.get('metadata', {})), json.dumps(data.get('tags', [])), data.get('stems_id'), data.get('duration', 0))
+                     data.get('created_at'), json.dumps(data.get('versions', {})), json.dumps(data.get('metadata', {})), json.dumps(data.get('tags', [])), data.get('stems_id'), data.get('duration', 0), data.get('selected_version'))
                 )
                 self.m.conn.commit()
             def update(self, updates, query):

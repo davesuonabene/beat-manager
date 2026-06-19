@@ -58,7 +58,7 @@ The CLI is the automation engine. It includes diagnostic tools to ensure the com
 -   **Python 3.10+**
 -   **Torch & Torchcodec**: For AI-powered stems separation.
 -   **HTDemucs**: Installed within the local virtual environment.
--   **tmux**: Required for the `beatmgr` management script.
+-   **tmux**: Required for the `mmpy` management script.
 
 ### Installation
 ```bash
@@ -94,8 +94,12 @@ When connected via SSH, the **Export Modal** (triggered with `E` in the TUI) fea
 ## 🛠️ Operating the System
 
 ### 1. The Dashboard (TUI)
-Features **Multi-Version Selector** at the bottom right. Instantly switch between Raw audio, Mastered versions, and separated Stems during playback. Supports **Bulk Tagging** using the `*` placeholder logic.
+Features **Nested Tree-Style Version/Stem Selector** directly in the Library table. Expand a Beat/Song asset to select/load the active version (if more than one exists) or open its Stems submenu to see individual stems. Imports allow direct type assignment, and export/import overlays are embedded inside the sidebar panel. Supports **Bulk Tagging** using the `*` placeholder logic.
 ```bash
+# Recommended: Use the management script
+mmpy
+
+# Manual (Direct):
 ./venv/bin/python3 tui.py
 ```
 

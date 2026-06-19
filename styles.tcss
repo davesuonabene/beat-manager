@@ -666,6 +666,15 @@ DataTable > .datatable--cursor {
     padding: 0 1;
 }
 
+#import-type-select {
+    width: 1fr;
+    height: 1;
+    border: none;
+    margin: 0;
+    background: $panel-bg;
+    padding: 0 1;
+}
+
 #btn-import-browse {
     width: 4;
     height: 1;
@@ -939,20 +948,13 @@ ConfirmModal {
     background: $bg;
 }
 
-/* Export Modal */
-ExportScreen {
-    align: center middle;
-}
-
-#export-container {
-    width: 80;
-    height: 38;
+/* Export Panel */
+#inspector-export-view {
+    height: 1fr;
     background: $panel-bg;
-    border: tall $border;
-    padding: 0;
 }
 
-#export-container .panel_title {
+#inspector-export-view .panel_title {
     background: $border;
     color: $highlight;
     margin: 0;
@@ -961,10 +963,34 @@ ExportScreen {
 }
 
 #export-path-tree {
-    height: 1fr;
+    height: 12;
     border: none;
     background: $bg;
     margin: 0;
+}
+
+#export-path-row {
+    height: 1;
+    margin: 0 0 1 0;
+}
+
+#export-path-input {
+    width: 1fr;
+    height: 1;
+    border: none;
+    margin: 0;
+    background: $panel-bg;
+    padding: 0 1;
+}
+
+#btn-export-browse {
+    width: 4;
+    height: 1;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: $highlight 20%;
+    color: $highlight;
 }
 
 #export-folder-name-container {

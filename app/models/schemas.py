@@ -153,6 +153,7 @@ class SampleAsset(LibraryAsset):
     key: Optional[str] = None
     sample_type: SampleType = Field(default=SampleType.ONE_SHOT, description="Type of sample (loop or one-shot)")
     duration: Optional[float] = None
+    versions: Dict[str, str] = Field(default_factory=dict, description="Map of version name to filename")
 
 class LinkImageRequest(BaseModel):
     image_id: str
